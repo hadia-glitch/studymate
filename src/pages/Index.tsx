@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3 } from "lucide-react";
+import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3, Flame } from "lucide-react";
 import { StickyNote as StickyNoteComponent, StickyNoteData } from "@/components/dashboard/StickyNote";
 import { TaskCard, Task } from "@/components/dashboard/TaskCard";
 import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
 import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
+import { ChatBot } from "@/components/chat/ChatBot";
+import { CandleTimer } from "@/components/study/CandleTimer";
+import { ScheduleOptimizer } from "@/components/ai/ScheduleOptimizer";
 
 const Index = () => {
   const [stickyNotes, setStickyNotes] = useState<StickyNoteData[]>([
@@ -71,6 +74,29 @@ const Index = () => {
       }
     };
     setStickyNotes(prev => [...prev, newNote]);
+  };
+
+  const addTaskFromChat = (taskData: Omit<Task, "id">) => {
+    const newTask: Task = {
+      ...taskData,
+      id: Date.now().toString()
+    };
+    setTasks(prev => [...prev, newTask]);
+  };
+
+  const handleScheduleUpdate = (schedule: any[]) => {
+    // Handle the optimized schedule update
+    console.log("Schedule updated:", schedule);
+  };
+
+  const handleSlotEdit = (slotId: string, task?: Task) => {
+    // Handle editing of schedule slots
+    console.log("Edit slot:", slotId, task);
+  };
+
+  const handleClearSlot = (date: Date, time: string) => {
+    // Handle clearing schedule slots
+    console.log("Clear slot:", date, time);
   };
 
   const updateStickyNote = (updatedNote: StickyNoteData) => {
@@ -192,13 +218,20 @@ const Index = () => {
 
           {/* Right Column - Timer & Sticky Notes */}
           <div className="space-y-8">
-            {/* Pomodoro Timer */}
-            <div>
-              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+            {/* Timers */}
+            <div className="space-y-6">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
                 <Timer className="h-5 w-5 text-primary" />
-                Focus Timer
+                Focus Timers
               </h2>
-              <PomodoroTimer />
+              
+              <div className="grid gap-4">
+                <PomodoroTimer />
+                <CandleTimer 
+                  duration={25}
+                  onComplete={() => console.log("Candle session complete!")}
+                />
+              </div>
             </div>
 
             {/* Quick Stats */}
@@ -223,6 +256,15 @@ const Index = () => {
               </div>
             </Card>
           </div>
+        </div>
+
+        {/* AI Schedule Optimizer */}
+        <div className="mt-12">
+          <ScheduleOptimizer 
+            tasks={tasks}
+            onScheduleUpdate={handleScheduleUpdate}
+            onSlotEdit={handleSlotEdit}
+          />
         </div>
 
         {/* Sticky Notes Section */}
@@ -257,6 +299,13 @@ const Index = () => {
             )}
           </Card>
         </div>
+        
+        {/* Chat Bot */}
+        <ChatBot 
+          onAddTask={addTaskFromChat}
+          onClearSlot={handleClearSlot}
+          tasks={tasks}
+        />
       </div>
     </div>
   );
