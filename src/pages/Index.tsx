@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3, Flame } from "lucide-react";
+import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3, Flame, Bot } from "lucide-react";
 import { StickyNote as StickyNoteComponent, StickyNoteData } from "@/components/dashboard/StickyNote";
 import { TaskCard, Task } from "@/components/dashboard/TaskCard";
 import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
 import { ChatBot } from "@/components/chat/ChatBot";
 import { CandleTimer } from "@/components/study/CandleTimer";
 import { ScheduleOptimizer } from "@/components/ai/ScheduleOptimizer";
+import { AIAssistant } from "@/components/ai/AIAssistant";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 
 const Index = () => {
@@ -28,6 +29,8 @@ const Index = () => {
     }
   ]);
 
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+  
   const [tasks, setTasks] = useState<Task[]>([
     {
       id: "1",
@@ -193,9 +196,9 @@ const Index = () => {
               <Badge variant="secondary" className="bg-success/10 text-success border-success/20">
                 {completedTasks.length} completed today
               </Badge>
-              <Button variant="default">
-                <Plus className="h-4 w-4 mr-2" />
-                New Task
+              <Button variant="default" onClick={() => setIsAIAssistantOpen(true)}>
+                <Bot className="h-4 w-4 mr-2" />
+                AI Assistant
               </Button>
             </div>
           </div>
@@ -314,6 +317,25 @@ const Index = () => {
 
         {/* AI Schedule Optimizer */}
         <div className="mt-12">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-primary" />
+              AI Schedule Optimizer
+            </h2>
+            <Button variant="outline" size="sm" onClick={() => setTasks(prev => [...prev, {
+              id: Date.now().toString(),
+              title: "New Task",
+              description: "Task description",
+              priority: "medium",
+              deadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              completed: false,
+              category: "General",
+              estimatedTime: 60
+            }])}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Task
+            </Button>
+          </div>
           <ScheduleOptimizer 
             tasks={tasks}
             onScheduleUpdate={handleScheduleUpdate}
@@ -362,11 +384,14 @@ const Index = () => {
           </DndContext>
         </div>
         
-        {/* Chat Bot */}
-        <ChatBot 
-          onAddTask={addTaskFromChat}
-          onClearSlot={handleClearSlot}
+        {/* AI Assistant */}
+        <AIAssistant
+          isOpen={isAIAssistantOpen}
+          onClose={() => setIsAIAssistantOpen(false)}
           tasks={tasks}
+          onAddTask={addTaskFromChat}
+          onAddStickyNote={addStickyNote}
+          onClearSlot={handleClearSlot}
         />
       </div>
     </div>
