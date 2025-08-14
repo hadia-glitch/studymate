@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
 import { ChatBot } from "@/components/chat/ChatBot";
 import { CandleTimer } from "@/components/study/CandleTimer";
 import { ScheduleOptimizer } from "@/components/ai/ScheduleOptimizer";
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 
 const Index = () => {
   const [stickyNotes, setStickyNotes] = useState<StickyNoteData[]>([
@@ -60,21 +61,48 @@ const Index = () => {
     }
   ]);
 
-  const addStickyNote = () => {
+  const addStickyNote = useCallback(() => {
     const colors: Array<"yellow" | "pink" | "blue" | "green" | "purple"> = ["yellow", "pink", "blue", "green", "purple"];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    
+    // Find a good position for the new note - ensure it's visible
+    const containerWidth = 800;
+    const containerHeight = 400;
+    const noteWidth = 224; // w-56 = 14rem = 224px
+    const noteHeight = 224; // h-56 = 14rem = 224px
+    
+    // Position new notes in a grid-like pattern, avoiding overlap
+    const existingPositions = stickyNotes.map(note => note.position);
+    let newX = 20;
+    let newY = 20;
+    
+    // Try to find a non-overlapping position
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        const testX = 20 + col * (noteWidth + 20);
+        const testY = 20 + row * (noteHeight + 20);
+        
+        const overlaps = existingPositions.some(pos => 
+          Math.abs(pos.x - testX) < noteWidth && Math.abs(pos.y - testY) < noteHeight
+        );
+        
+        if (!overlaps && testX + noteWidth <= containerWidth && testY + noteHeight <= containerHeight) {
+          newX = testX;
+          newY = testY;
+          break;
+        }
+      }
+      if (newX !== 20 || newY !== 20) break;
+    }
     
     const newNote: StickyNoteData = {
       id: Date.now().toString(),
       content: "",
       color: randomColor,
-      position: { 
-        x: Math.random() * 400 + 50, 
-        y: Math.random() * 300 + 50 
-      }
+      position: { x: newX, y: newY }
     };
     setStickyNotes(prev => [...prev, newNote]);
-  };
+  }, [stickyNotes]);
 
   const addTaskFromChat = (taskData: Omit<Task, "id">) => {
     const newTask: Task = {
@@ -99,11 +127,37 @@ const Index = () => {
     console.log("Clear slot:", date, time);
   };
 
-  const updateStickyNote = (updatedNote: StickyNoteData) => {
+  const updateStickyNote = useCallback((updatedNote: StickyNoteData) => {
     setStickyNotes(prev => prev.map(note => 
       note.id === updatedNote.id ? updatedNote : note
     ));
-  };
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, delta } = event;
+    if (!delta) return;
+
+    const noteId = active.id as string;
+    setStickyNotes(prev => prev.map(note => {
+      if (note.id === noteId) {
+        const newX = Math.max(0, Math.min(note.position.x + delta.x, 800 - 224));
+        const newY = Math.max(0, Math.min(note.position.y + delta.y, 400 - 224));
+        return {
+          ...note,
+          position: { x: newX, y: newY }
+        };
+      }
+      return note;
+    }));
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   const deleteStickyNote = (id: string) => {
     setStickyNotes(prev => prev.filter(note => note.id !== id));
@@ -267,37 +321,45 @@ const Index = () => {
           />
         </div>
 
-        {/* Sticky Notes Section */}
+        {/* Interactive Sticky Notes Section */}
         <div className="mt-12">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <StickyNote className="h-5 w-5 text-primary" />
               Quick Reminders
             </h2>
-            <Button variant="outline" size="sm" onClick={addStickyNote}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Note
-            </Button>
+            <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="text-xs">
+                Drag to reorganize
+              </Badge>
+              <Button variant="outline" size="sm" onClick={addStickyNote}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Note
+              </Button>
+            </div>
           </div>
           
-          <Card className="relative min-h-96 overflow-hidden bg-gradient-to-br from-muted/30 to-muted/10 border-dashed">
-            {stickyNotes.map(note => (
-              <StickyNoteComponent
-                key={note.id}
-                note={note}
-                onUpdate={updateStickyNote}
-                onDelete={deleteStickyNote}
-              />
-            ))}
-            {stickyNotes.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <StickyNote className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>Click "Add Note" to create your first reminder</p>
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <Card className="relative min-h-[400px] overflow-visible bg-gradient-to-br from-muted/30 to-muted/10 border-dashed border-2 p-4 sticky-notes-container">
+              {stickyNotes.map(note => (
+                <StickyNoteComponent
+                  key={note.id}
+                  note={note}
+                  onUpdate={updateStickyNote}
+                  onDelete={deleteStickyNote}
+                />
+              ))}
+              {stickyNotes.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                  <div className="text-center">
+                    <StickyNote className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg mb-2">Click "Add Note" to create your first reminder</p>
+                    <p className="text-sm opacity-75">Drag and drop notes to reorganize them</p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </Card>
+              )}
+            </Card>
+          </DndContext>
         </div>
         
         {/* Chat Bot */}

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { X, Edit3, Save } from "lucide-react";
+import { X, Edit3, Save, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDraggable } from '@dnd-kit/core';
 
 export interface StickyNoteData {
   id: string;
@@ -21,6 +22,15 @@ interface StickyNoteProps {
 export const StickyNote = ({ note, onUpdate, onDelete, isDragging }: StickyNoteProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(note.content);
+  
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging: isDraggingLocal
+  } = useDraggable({
+    id: note.id,
+  });
 
   const colorClasses = {
     yellow: "bg-sticky-yellow text-amber-800 border-amber-300",
@@ -40,31 +50,43 @@ export const StickyNote = ({ note, onUpdate, onDelete, isDragging }: StickyNoteP
     setIsEditing(false);
   };
 
+  const currentlyDragging = isDragging || isDraggingLocal;
+
   return (
     <Card
+      ref={setNodeRef}
       className={cn(
-        "absolute w-56 h-56 p-4 border-2 shadow-sticky cursor-move transition-all duration-200",
+        "absolute w-56 h-56 p-4 border-2 shadow-sticky transition-all duration-200",
         colorClasses[note.color],
-        isDragging ? "rotate-6 scale-105 shadow-float" : "hover:rotate-2 hover:shadow-float",
-        "animate-slide-up"
+        currentlyDragging ? "rotate-6 scale-105 shadow-float z-50" : "hover:rotate-1 hover:shadow-float z-10",
+        "animate-slide-up",
+        !isEditing && "cursor-grab active:cursor-grabbing"
       )}
       style={{
         left: note.position.x,
         top: note.position.y,
-        transform: isDragging ? 'rotate(6deg) scale(1.05)' : undefined
+        transform: currentlyDragging ? 'rotate(6deg) scale(1.05)' : undefined,
+        zIndex: currentlyDragging ? 50 : 10
       }}
+      {...attributes}
+      {...(!isEditing ? listeners : {})}
     >
       <div className="flex justify-between items-start mb-3">
         <div className="flex gap-1">
           {!isEditing && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsEditing(true)}
-              className="h-6 w-6 p-0 hover:bg-white/50"
-            >
-              <Edit3 className="h-3 w-3" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditing(true)}
+                className="h-6 w-6 p-0 hover:bg-white/50"
+              >
+                <Edit3 className="h-3 w-3" />
+              </Button>
+              <div className="h-6 w-6 flex items-center justify-center opacity-60">
+                <GripVertical className="h-3 w-3" />
+              </div>
+            </>
           )}
         </div>
         <Button
