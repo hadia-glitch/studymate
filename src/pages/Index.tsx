@@ -109,8 +109,11 @@ const Index = () => {
     setStickyNotes(prev => [...prev, newNote]);
   }, [stickyNotes]);
 
-  const addTask = () => {
-    const newTask: Task = {
+  const addTask = (taskData?: Omit<Task, "id">) => {
+    const newTask: Task = taskData ? {
+      ...taskData,
+      id: Date.now().toString()
+    } : {
       id: Date.now().toString(),
       title: "New Task",
       description: "Click to edit this task",
@@ -268,10 +271,6 @@ const Index = () => {
                   <CheckSquare className="h-5 w-5 text-primary" />
                   Today's Tasks
                 </h2>
-                <Button variant="outline" size="sm" onClick={addTask}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Task
-                </Button>
               </div>
               
               <div className="space-y-3">
@@ -286,7 +285,7 @@ const Index = () => {
             </div>
 
             {/* Weekly Calendar */}
-            <WeeklyCalendar tasks={tasks} />
+            <WeeklyCalendar tasks={tasks} onAddTask={addTask} />
           </div>
 
           {/* Right Column - Timer & Sticky Notes */}
@@ -331,65 +330,6 @@ const Index = () => {
           </div>
         </div>
 
-        {/* AI Schedule */}
-        <div className="mt-12">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-primary" />
-              Smart Schedule
-            </h2>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={addTask}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Task
-              </Button>
-              {!hasGeneratedSchedule && (
-                <Button 
-                  variant="default" 
-                  size="sm" 
-                  onClick={() => {
-                    setIsAIAssistantOpen(true);
-                    // Auto-send generate schedule message
-                    setTimeout(() => {
-                      const event = new CustomEvent('autoSendMessage', { 
-                        detail: 'Generate my schedule for this week' 
-                      });
-                      window.dispatchEvent(event);
-                    }, 500);
-                  }}
-                >
-                  Generate Schedule
-                </Button>
-              )}
-            </div>
-          </div>
-          
-          {hasGeneratedSchedule ? (
-            <Card className="p-6">
-              <div className="text-center py-8">
-                <Calendar className="h-12 w-12 mx-auto mb-4 text-primary" />
-                <h3 className="text-lg font-semibold mb-2">Your AI-Generated Schedule</h3>
-                <p className="text-muted-foreground mb-4">
-                  Schedule has been generated! Use the AI Assistant to view, modify, or ask questions about your schedule.
-                </p>
-                <Button onClick={() => setIsAIAssistantOpen(true)}>
-                  <Bot className="h-4 w-4 mr-2" />
-                  Open AI Assistant
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-6">
-              <div className="text-center py-8">
-                <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">No Schedule Generated Yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Click "Generate Schedule" to let AI create an optimized study schedule based on your preferences.
-                </p>
-              </div>
-            </Card>
-          )}
-        </div>
 
         {/* Interactive Sticky Notes Section */}
         <div className="mt-12">

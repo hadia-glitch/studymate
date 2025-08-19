@@ -198,6 +198,11 @@ export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote
       return `Perfect! I've added "${title}" to your task list with ${priority} priority, due ${deadline.toLocaleDateString()}. The task is now visible in your schedule.`;
     }
 
+    // Check for routine task setup
+    if (lowerMessage.includes("routine") || (lowerMessage.includes("breakfast") || lowerMessage.includes("gym") || lowerMessage.includes("lunch") || lowerMessage.includes("dinner")) && lowerMessage.includes("time")) {
+      return "Great! I can help you set up routine tasks like meals, gym sessions, and other daily activities. For example:\n\n• 'Set breakfast time 8:00 AM - 9:00 AM daily'\n• 'Add gym routine 6:00 PM - 7:30 PM weekdays'\n• 'Schedule lunch break 12:00 PM - 1:00 PM'\n\nThese will be blocked in your schedule so new tasks won't be scheduled during these times. What routine would you like to add?";
+    }
+
     // Check for reminder addition
     if (lowerMessage.includes("add") && (lowerMessage.includes("reminder") || lowerMessage.includes("note"))) {
       onAddStickyNote();
@@ -313,7 +318,7 @@ Try asking me: "Generate my schedule", "What should I do now?", or "Add a task t
           </div>
 
           {/* Messages */}
-          <ScrollArea className="flex-1 mb-4" ref={scrollAreaRef}>
+          <ScrollArea className="flex-1 mb-4 max-h-96" ref={scrollAreaRef}>
             <div className="space-y-4 pr-4">
               {messages.map((message) => (
                 <div
