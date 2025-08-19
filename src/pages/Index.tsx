@@ -9,7 +9,7 @@ import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
 import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
 import { ChatBot } from "@/components/chat/ChatBot";
 import { CandleTimer } from "@/components/study/CandleTimer";
-import { ScheduleOptimizer } from "@/components/ai/ScheduleOptimizer";
+
 import { AIAssistant } from "@/components/ai/AIAssistant";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 
@@ -30,6 +30,8 @@ const Index = () => {
   ]);
 
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+  const [schedule, setSchedule] = useState<any[]>([]);
+  const [hasGeneratedSchedule, setHasGeneratedSchedule] = useState(false);
   
   const [tasks, setTasks] = useState<Task[]>([
     {
@@ -107,6 +109,20 @@ const Index = () => {
     setStickyNotes(prev => [...prev, newNote]);
   }, [stickyNotes]);
 
+  const addTask = () => {
+    const newTask: Task = {
+      id: Date.now().toString(),
+      title: "New Task",
+      description: "Click to edit this task",
+      priority: "medium",
+      deadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      completed: false,
+      category: "General",
+      estimatedTime: 60
+    };
+    setTasks(prev => [...prev, newTask]);
+  };
+
   const addTaskFromChat = (taskData: Omit<Task, "id">) => {
     const newTask: Task = {
       ...taskData,
@@ -115,9 +131,9 @@ const Index = () => {
     setTasks(prev => [...prev, newTask]);
   };
 
-  const handleScheduleUpdate = (schedule: any[]) => {
-    // Handle the optimized schedule update
-    console.log("Schedule updated:", schedule);
+  const handleScheduleUpdate = (newSchedule: any[]) => {
+    setSchedule(newSchedule);
+    setHasGeneratedSchedule(true);
   };
 
   const handleSlotEdit = (slotId: string, task?: Task) => {
@@ -252,7 +268,7 @@ const Index = () => {
                   <CheckSquare className="h-5 w-5 text-primary" />
                   Today's Tasks
                 </h2>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={addTask}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Task
                 </Button>
@@ -315,32 +331,64 @@ const Index = () => {
           </div>
         </div>
 
-        {/* AI Schedule Optimizer */}
+        {/* AI Schedule */}
         <div className="mt-12">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Calendar className="h-5 w-5 text-primary" />
-              AI Schedule Optimizer
+              Smart Schedule
             </h2>
-            <Button variant="outline" size="sm" onClick={() => setTasks(prev => [...prev, {
-              id: Date.now().toString(),
-              title: "New Task",
-              description: "Task description",
-              priority: "medium",
-              deadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              completed: false,
-              category: "General",
-              estimatedTime: 60
-            }])}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Task
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={addTask}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Task
+              </Button>
+              {!hasGeneratedSchedule && (
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  onClick={() => {
+                    setIsAIAssistantOpen(true);
+                    // Auto-send generate schedule message
+                    setTimeout(() => {
+                      const event = new CustomEvent('autoSendMessage', { 
+                        detail: 'Generate my schedule for this week' 
+                      });
+                      window.dispatchEvent(event);
+                    }, 500);
+                  }}
+                >
+                  Generate Schedule
+                </Button>
+              )}
+            </div>
           </div>
-          <ScheduleOptimizer 
-            tasks={tasks}
-            onScheduleUpdate={handleScheduleUpdate}
-            onSlotEdit={handleSlotEdit}
-          />
+          
+          {hasGeneratedSchedule ? (
+            <Card className="p-6">
+              <div className="text-center py-8">
+                <Calendar className="h-12 w-12 mx-auto mb-4 text-primary" />
+                <h3 className="text-lg font-semibold mb-2">Your AI-Generated Schedule</h3>
+                <p className="text-muted-foreground mb-4">
+                  Schedule has been generated! Use the AI Assistant to view, modify, or ask questions about your schedule.
+                </p>
+                <Button onClick={() => setIsAIAssistantOpen(true)}>
+                  <Bot className="h-4 w-4 mr-2" />
+                  Open AI Assistant
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            <Card className="p-6">
+              <div className="text-center py-8">
+                <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">No Schedule Generated Yet</h3>
+                <p className="text-muted-foreground mb-4">
+                  Click "Generate Schedule" to let AI create an optimized study schedule based on your preferences.
+                </p>
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Interactive Sticky Notes Section */}
@@ -392,6 +440,8 @@ const Index = () => {
           onAddTask={addTaskFromChat}
           onAddStickyNote={addStickyNote}
           onClearSlot={handleClearSlot}
+          schedule={schedule}
+          onScheduleUpdate={handleScheduleUpdate}
         />
       </div>
     </div>

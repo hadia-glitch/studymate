@@ -16,6 +16,8 @@ interface AIAssistantProps {
   onAddTask: (task: Omit<Task, "id">) => void;
   onAddStickyNote: () => void;
   onClearSlot: (date: Date, time: string) => void;
+  schedule?: any[];
+  onScheduleUpdate?: (schedule: any[]) => void;
 }
 
 interface Message {
@@ -25,15 +27,17 @@ interface Message {
   timestamp: Date;
 }
 
-export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote, onClearSlot }: AIAssistantProps) => {
+export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote, onClearSlot, schedule = [], onScheduleUpdate }: AIAssistantProps) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
-      content: "Hello! I'm your AI study assistant. I can help you manage your schedule, add tasks, create reminders, and answer questions about your work. Try asking me something like 'What work do I have for today?' or 'Add a new task to study math with deadline tomorrow'.",
+      content: "Hello! I'm your AI study assistant. I can help you generate schedules, manage tasks, create reminders, and answer questions about your work. Try asking me 'Generate my schedule for this week' or 'What work do I have for today?'",
       sender: "ai",
       timestamp: new Date()
     }
   ]);
+  const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false);
+  const [userPreferences, setUserPreferences] = useState<{availableHours?: string, unavailableHours?: string}>({});
   const [inputValue, setInputValue] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -44,8 +48,97 @@ export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote
     }
   }, [messages]);
 
-  const processAIResponse = (userMessage: string): string => {
+  useEffect(() => {
+    const handleAutoSend = (event: CustomEvent) => {
+      setInputValue(event.detail);
+      setTimeout(() => handleSendMessage(), 100);
+    };
+    
+    window.addEventListener('autoSendMessage', handleAutoSend as EventListener);
+    return () => window.removeEventListener('autoSendMessage', handleAutoSend as EventListener);
+  }, []);
+
+  const generateSchedule = async (availableHours: string, unavailableHours: string) => {
+    setIsGeneratingSchedule(true);
+    
+    // Simulate AI processing
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const workingHours = availableHours.split('-').map(h => parseInt(h.trim()));
+    const unavailableRanges = unavailableHours.split(',').map(range => range.trim());
+    
+    const generatedSchedule = tasks.filter(task => !task.completed).map((task, index) => ({
+      id: `schedule-${index}`,
+      task,
+      day: new Date(Date.now() + (index % 7) * 24 * 60 * 60 * 1000),
+      startTime: workingHours[0] + (index * 2) % (workingHours[1] - workingHours[0]),
+      duration: Math.min(task.estimatedTime / 60, 3)
+    }));
+    
+    if (onScheduleUpdate) {
+      onScheduleUpdate(generatedSchedule);
+    }
+    
+    setIsGeneratingSchedule(false);
+    return generatedSchedule;
+  };
+
+  const processAIResponse = async (userMessage: string): Promise<string> => {
     const lowerMessage = userMessage.toLowerCase();
+    
+    // Check for schedule generation requests
+    if (lowerMessage.includes("generate") && lowerMessage.includes("schedule")) {
+      if (!userPreferences.availableHours) {
+        setUserPreferences({ availableHours: undefined, unavailableHours: undefined });
+        return "I'd love to help you generate an optimized schedule! To create the best plan for you, I need to know:\n\n1. What hours would you prefer to work/study? (e.g., '8-22' for 8 AM to 10 PM)\n2. What hours are you unavailable? (e.g., '12-13, 18-19' for lunch and dinner)\n\nPlease tell me your preferences and I'll create your personalized schedule!";
+      }
+      
+      if (userPreferences.availableHours && userPreferences.unavailableHours) {
+        await generateSchedule(userPreferences.availableHours, userPreferences.unavailableHours);
+        return `Perfect! I've generated your optimized schedule based on your preferences:\n\n• Available hours: ${userPreferences.availableHours}\n• Unavailable hours: ${userPreferences.unavailableHours}\n\nYour schedule includes ${tasks.filter(t => !t.completed).length} tasks distributed across the week. You can now view your schedule in the Smart Schedule section above, or ask me specific questions about your schedule!`;
+      }
+    }
+    
+    // Check for schedule preference responses
+    if (lowerMessage.includes("-") && (lowerMessage.includes("am") || lowerMessage.includes("pm") || /\d+\-\d+/.test(lowerMessage))) {
+      const timeRangeMatch = userMessage.match(/(\d+(?:\-\d+)?(?:\s*(?:am|pm))?)/gi);
+      if (timeRangeMatch && !userPreferences.availableHours) {
+        setUserPreferences(prev => ({ ...prev, availableHours: timeRangeMatch[0] }));
+        return "Great! I've noted your available hours. Now, when are you typically unavailable? (e.g., '12-13, 18-19' for lunch and dinner breaks, or 'none' if you're flexible)";
+      } else if (timeRangeMatch && userPreferences.availableHours && !userPreferences.unavailableHours) {
+        const unavailable = lowerMessage.includes("none") ? "none" : userMessage;
+        setUserPreferences(prev => ({ ...prev, unavailableHours: unavailable }));
+        await generateSchedule(userPreferences.availableHours, unavailable);
+        return `Perfect! I've generated your schedule with:\n• Available: ${userPreferences.availableHours}\n• Unavailable: ${unavailable}\n\nYour personalized schedule is ready! Check the Smart Schedule section above or ask me about your upcoming tasks.`;
+      }
+    }
+    
+    // Check for current schedule queries
+    if (lowerMessage.includes("what") && (lowerMessage.includes("now") || lowerMessage.includes("should i do"))) {
+      if (schedule.length === 0) {
+        return "You don't have a generated schedule yet. Would you like me to create one for you? Just say 'Generate my schedule for this week' and I'll help you set it up!";
+      }
+      
+      const now = new Date();
+      const currentHour = now.getHours();
+      const todaySchedule = schedule.filter(item => 
+        item.day.toDateString() === now.toDateString()
+      );
+      
+      const currentTask = todaySchedule.find(item => 
+        currentHour >= item.startTime && currentHour < (item.startTime + item.duration)
+      );
+      
+      if (currentTask) {
+        return `Right now you should be working on: **${currentTask.task.title}**\n\nPriority: ${currentTask.task.priority}\nEstimated time: ${currentTask.task.estimatedTime} minutes\nDeadline: ${currentTask.task.deadline.toLocaleDateString()}\n\n${currentTask.task.description}`;
+      } else {
+        const nextTask = todaySchedule.find(item => item.startTime > currentHour);
+        if (nextTask) {
+          return `You're currently in a break period. Your next task is **${nextTask.task.title}** at ${nextTask.startTime}:00. Take this time to relax or prepare!`;
+        }
+        return "You don't have any scheduled tasks right now. Great job if you've completed everything, or consider adding new tasks to your schedule!";
+      }
+    }
     
     // Check for work/schedule queries
     if (lowerMessage.includes("work") && (lowerMessage.includes("today") || lowerMessage.includes("now"))) {
@@ -113,7 +206,10 @@ export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote
 
     // Check for schedule clearing requests
     if (lowerMessage.includes("free up") && lowerMessage.includes("slot")) {
-      return "I can help you free up time slots! However, I need more specific information. Could you tell me which day and time you'd like to clear? For example, 'Free up tomorrow at 2 PM' or 'Clear my schedule for Friday morning'.";
+      if (schedule.length === 0) {
+        return "You don't have a generated schedule yet. Please generate a schedule first, then I can help you free up specific time slots!";
+      }
+      return "I can help you free up time slots and reschedule tasks! Which specific day and time would you like to clear? For example:\n• 'Free up tomorrow at 2 PM'\n• 'Clear Friday morning'\n• 'Move my math study session to another day'\n\nI'll find the best alternative slot before the task's deadline.";
     }
 
     // Check for priority queries
@@ -134,13 +230,13 @@ export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote
     // Default response
     return `I understand you're asking about "${userMessage}". I can help you with:
     
-• Adding new tasks and reminders
-• Checking your current work and schedule
-• Managing task priorities
-• Freeing up time slots
-• Creating study schedules
+• **Generate Schedule**: Create an AI-optimized weekly schedule
+• **Current Tasks**: Check what you should be doing right now
+• **Add Tasks**: Create new tasks with deadlines and priorities
+• **Free Up Slots**: Move tasks to different times
+• **Quick Reminders**: Add sticky notes for important things
 
-Try asking me something specific like "What's my priority work?" or "Add a task to review notes with deadline Friday".`;
+Try asking me: "Generate my schedule", "What should I do now?", or "Add a task to study biology"`;;
   };
 
   const handleSendMessage = () => {
@@ -156,10 +252,10 @@ Try asking me something specific like "What's my priority work?" or "Add a task 
     setMessages(prev => [...prev, userMessage]);
 
     // Simulate AI processing delay
-    setTimeout(() => {
+    setTimeout(async () => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        content: processAIResponse(inputValue),
+        content: await processAIResponse(inputValue),
         sender: "ai",
         timestamp: new Date()
       };
@@ -202,17 +298,17 @@ Try asking me something specific like "What's my priority work?" or "Add a task 
         <div className="flex flex-col h-full">
           {/* Quick Actions */}
           <div className="flex gap-2 mb-4 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setInputValue("What work do I have for today?")}>
+            <Button variant="outline" size="sm" onClick={() => setInputValue("Generate my schedule for this week")}>
               <Calendar className="h-3 w-3 mr-1" />
-              Today's Work
+              Generate Schedule
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setInputValue("What should I be doing right now?")}>
+              <Clock className="h-3 w-3 mr-1" />
+              What Now?
             </Button>
             <Button variant="outline" size="sm" onClick={() => setInputValue("Add a new study task")}>
               <Plus className="h-3 w-3 mr-1" />
               Add Task
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setInputValue("What are my high priority tasks?")}>
-              <Clock className="h-3 w-3 mr-1" />
-              Priorities
             </Button>
           </div>
 
