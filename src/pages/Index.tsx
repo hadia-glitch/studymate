@@ -1,8 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3, Flame, Bot } from "lucide-react";
+import { Plus, Calendar, Timer, CheckSquare, StickyNote, BarChart3, Flame, Bot, Sparkles } from "lucide-react";
 import { StickyNote as StickyNoteComponent, StickyNoteData } from "@/components/dashboard/StickyNote";
 import { TaskCard, Task } from "@/components/dashboard/TaskCard";
 import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
@@ -14,57 +14,20 @@ import { AIAssistant } from "@/components/ai/AIAssistant";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 
 const Index = () => {
-  const [stickyNotes, setStickyNotes] = useState<StickyNoteData[]>([
-    {
-      id: "1",
-      content: "Review Chapter 5 for tomorrow's quiz",
-      color: "yellow",
-      position: { x: 50, y: 50 }
-    },
-    {
-      id: "2", 
-      content: "Team meeting at 3 PM - Project presentation prep",
-      color: "blue",
-      position: { x: 320, y: 120 }
-    }
-  ]);
-
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [stickyNotes, setStickyNotes] = useState<StickyNoteData[]>([]);
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
   const [schedule, setSchedule] = useState<any[]>([]);
   const [hasGeneratedSchedule, setHasGeneratedSchedule] = useState(false);
-  
-  const [tasks, setTasks] = useState<Task[]>([
-    {
-      id: "1",
-      title: "Complete React Assignment",
-      description: "Build a todo app with TypeScript and shadcn/ui components",
-      priority: "high",
-      deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
-      completed: false,
-      category: "Programming",
-      estimatedTime: 180
-    },
-    {
-      id: "2",
-      title: "Study for Biology Exam",
-      description: "Review chapters 8-12, focus on cellular respiration",
-      priority: "high",
-      deadline: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000), // tomorrow
-      completed: false,
-      category: "Biology",
-      estimatedTime: 120
-    },
-    {
-      id: "3",
-      title: "Group Project Meeting",
-      description: "Discuss final presentation and divide remaining tasks",
-      priority: "medium",
-      deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-      completed: false,
-      category: "Teamwork",
-      estimatedTime: 60
-    }
-  ]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  // Update current time every minute
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentDate(new Date());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const addStickyNote = useCallback(() => {
     const colors: Array<"yellow" | "pink" | "blue" | "green" | "purple"> = ["yellow", "pink", "blue", "green", "purple"];
@@ -109,19 +72,10 @@ const Index = () => {
     setStickyNotes(prev => [...prev, newNote]);
   }, [stickyNotes]);
 
-  const addTask = (taskData?: Omit<Task, "id">) => {
-    const newTask: Task = taskData ? {
+  const addTask = (taskData: Omit<Task, "id">) => {
+    const newTask: Task = {
       ...taskData,
       id: Date.now().toString()
-    } : {
-      id: Date.now().toString(),
-      title: "New Task",
-      description: "Click to edit this task",
-      priority: "medium",
-      deadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      completed: false,
-      category: "General",
-      estimatedTime: 60
     };
     setTasks(prev => [...prev, newTask]);
   };
@@ -132,6 +86,79 @@ const Index = () => {
       id: Date.now().toString()
     };
     setTasks(prev => [...prev, newTask]);
+  };
+
+  const generateSchedule = () => {
+    if (tasks.length === 0) return;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Filter tasks that need scheduling (not completed and deadline is in the future)
+    const tasksToSchedule = tasks.filter(task => 
+      !task.completed && 
+      task.deadline > today
+    );
+    
+    // Sort by priority (high first) then by deadline
+    const sortedTasks = tasksToSchedule.sort((a, b) => {
+      const priorityOrder = { high: 3, medium: 2, low: 1 };
+      const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+    });
+    
+    const newSchedule: any[] = [];
+    let currentScheduleDate = new Date(today);
+    let currentHour = 9; // Start at 9 AM
+    
+    sortedTasks.forEach(task => {
+      // Calculate completion deadline (2 days before actual deadline)
+      const completionDeadline = new Date(task.deadline);
+      completionDeadline.setDate(completionDeadline.getDate() - 2);
+      
+      // Skip if we can't complete it in time
+      if (currentScheduleDate > completionDeadline) return;
+      
+      const sessions = Math.ceil(task.estimatedTime / 90); // 90-minute sessions max
+      
+      for (let i = 0; i < sessions; i++) {
+        const sessionDuration = Math.min(90, task.estimatedTime - (i * 90));
+        const startTime = `${currentHour}:00`;
+        const endHour = currentHour + Math.ceil(sessionDuration / 60);
+        const endTime = `${endHour}:00`;
+        
+        newSchedule.push({
+          id: `${task.id}-${i}`,
+          taskId: task.id,
+          date: new Date(currentScheduleDate),
+          startTime,
+          endTime,
+          interval: `${startTime} - ${endTime}`,
+          task: `${task.title} (Session ${i + 1}/${sessions})`,
+          duration: sessionDuration
+        });
+        
+        currentHour = endHour + 1; // 1 hour break
+        
+        // If we reach evening, move to next day
+        if (currentHour >= 18) {
+          currentScheduleDate.setDate(currentScheduleDate.getDate() + 1);
+          currentHour = 9;
+          
+          // Don't schedule on weekends for now
+          if (currentScheduleDate.getDay() === 0) {
+            currentScheduleDate.setDate(currentScheduleDate.getDate() + 1);
+          }
+          if (currentScheduleDate.getDay() === 6) {
+            currentScheduleDate.setDate(currentScheduleDate.getDate() + 2);
+          }
+        }
+      }
+    });
+    
+    setSchedule(newSchedule);
+    setHasGeneratedSchedule(true);
   };
 
   const handleScheduleUpdate = (newSchedule: any[]) => {
@@ -194,6 +221,22 @@ const Index = () => {
   const pendingTasks = tasks.filter(task => !task.completed);
   const completedTasks = tasks.filter(task => task.completed);
   const highPriorityTasks = pendingTasks.filter(task => task.priority === "high");
+  
+  // Filter today's completed tasks
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayCompletedTasks = completedTasks.filter(task => {
+    const completedDate = new Date(task.deadline);
+    completedDate.setHours(0, 0, 0, 0);
+    return completedDate.getTime() === today.getTime();
+  });
+
+  // Get today's schedule
+  const todaySchedule = schedule.filter(item => {
+    const itemDate = new Date(item.date);
+    itemDate.setHours(0, 0, 0, 0);
+    return itemDate.getTime() === today.getTime();
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -212,8 +255,16 @@ const Index = () => {
             </div>
             
             <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="text-xs">
+                {currentDate.toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </Badge>
               <Badge variant="secondary" className="bg-success/10 text-success border-success/20">
-                {completedTasks.length} completed today
+                {todayCompletedTasks.length} completed today
               </Badge>
               <Button variant="default" onClick={() => setIsAIAssistantOpen(true)}>
                 <Bot className="h-4 w-4 mr-2" />
@@ -247,7 +298,7 @@ const Index = () => {
             <div className="flex items-center justify-center mb-2">
               <BarChart3 className="h-8 w-8 text-success" />
             </div>
-            <h3 className="text-2xl font-bold text-success">{completedTasks.length}</h3>
+            <h3 className="text-2xl font-bold text-success">{todayCompletedTasks.length}</h3>
             <p className="text-sm text-muted-foreground">Completed</p>
           </Card>
           
@@ -269,23 +320,65 @@ const Index = () => {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold flex items-center gap-2">
                   <CheckSquare className="h-5 w-5 text-primary" />
-                  Today's Tasks
+                  To Do List
                 </h2>
+                <Button variant="outline" size="sm" onClick={() => document.getElementById('task-form-trigger')?.click()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Task
+                </Button>
               </div>
               
               <div className="space-y-3">
-                {pendingTasks.slice(0, 5).map(task => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onToggleComplete={toggleTaskComplete}
-                  />
-                ))}
+                {pendingTasks.length > 0 ? (
+                  pendingTasks.map(task => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      onToggleComplete={toggleTaskComplete}
+                    />
+                  ))
+                ) : (
+                  <Card className="p-6 text-center text-muted-foreground">
+                    <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No tasks yet. Click "Add Task" to get started!</p>
+                  </Card>
+                )}
               </div>
             </div>
 
-            {/* Weekly Calendar */}
-            <WeeklyCalendar tasks={tasks} onAddTask={addTask} />
+            {/* Weekly Schedule */}
+            <div>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-primary" />
+                  Weekly Schedule
+                </h2>
+                {!hasGeneratedSchedule && tasks.length > 0 && (
+                  <Button onClick={generateSchedule} className="bg-primary hover:bg-primary/90">
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate Schedule
+                  </Button>
+                )}
+              </div>
+              
+              {hasGeneratedSchedule || todaySchedule.length > 0 ? (
+                <WeeklyCalendar 
+                  tasks={tasks} 
+                  onAddTask={addTask} 
+                  schedule={schedule}
+                  onScheduleUpdate={handleScheduleUpdate}
+                />
+              ) : (
+                <Card className="p-8 text-center text-muted-foreground">
+                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-medium mb-2">No Schedule Generated Yet</h3>
+                  <p className="mb-4">Add some tasks to your to-do list, then click "Generate Schedule" to automatically organize your week.</p>
+                  {tasks.length === 0 && (
+                    <p className="text-sm opacity-75">Start by adding your first task above!</p>
+                  )}
+                </Card>
+              )}
+            </div>
           </div>
 
           {/* Right Column - Timer & Sticky Notes */}

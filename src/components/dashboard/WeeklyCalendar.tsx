@@ -18,25 +18,14 @@ interface ScheduleItem {
 
 interface WeeklyCalendarProps {
   tasks: Task[];
-  onAddTask: () => void;
+  onAddTask: (task: Omit<Task, "id">) => void;
+  schedule?: any[];
+  onScheduleUpdate?: (schedule: any[]) => void;
 }
 
-export const WeeklyCalendar = ({ tasks, onAddTask }: WeeklyCalendarProps) => {
+export const WeeklyCalendar = ({ tasks, onAddTask, schedule = [], onScheduleUpdate }: WeeklyCalendarProps) => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([
-    {
-      id: "1",
-      interval: "9:00 AM - 10:30 AM",
-      task: "React Assignment Work",
-      day: "Monday"
-    },
-    {
-      id: "2", 
-      interval: "11:00 AM - 12:00 PM",
-      task: "Biology Study Session",
-      day: "Monday"
-    }
-  ]);
+  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<{interval: string, task: string}>({interval: "", task: ""});
@@ -113,6 +102,17 @@ export const WeeklyCalendar = ({ tasks, onAddTask }: WeeklyCalendarProps) => {
     });
     setScheduleItems(sortedItems);
     setIsEditing(false);
+    
+    // Update parent component with new schedule
+    if (onScheduleUpdate) {
+      onScheduleUpdate(sortedItems.map(item => ({
+        id: item.id,
+        date: new Date(),
+        interval: item.interval,
+        task: item.task,
+        day: item.day
+      })));
+    }
   };
 
   const convertToMinutes = (timeStr: string): number => {
@@ -159,14 +159,6 @@ export const WeeklyCalendar = ({ tasks, onAddTask }: WeeklyCalendarProps) => {
               title="Customize time preferences"
             >
               <Settings className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowTaskForm(true)}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Task
             </Button>
           </div>
         </div>
@@ -311,6 +303,13 @@ export const WeeklyCalendar = ({ tasks, onAddTask }: WeeklyCalendarProps) => {
         isOpen={showTaskForm}
         onClose={() => setShowTaskForm(false)}
         onAddTask={onAddTask}
+      />
+      
+      {/* Hidden trigger for task form */}
+      <button
+        id="task-form-trigger"
+        onClick={() => setShowTaskForm(true)}
+        style={{ display: 'none' }}
       />
 
       <TimePreferencesDialog
