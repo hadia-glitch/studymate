@@ -1,0 +1,59 @@
+// Task interface
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  priority: "high" | "medium" | "low";
+  deadline: Date;
+  completed: boolean;
+  category?: string;
+  estimatedTime?: number; // in minutes
+}
+
+// Schedule Item interface
+export interface ScheduleItem {
+  id: string;
+  interval: string;
+  task: string;
+  date: string; // e.g. "2025-08-19"
+  taskId?: string; // Reference to original task
+  isAutoScheduled?: boolean; // Track if this was auto-scheduled
+}
+
+// Time Preferences interface
+export interface TimePreferences {
+  filled: string[]; // Available time slots
+  unfilled: string[]; // Unavailable time slots
+}
+
+// Sticky Note interface
+export interface StickyNoteData {
+  id: string;
+  content: string;
+  color: "yellow" | "pink" | "blue" | "green" | "purple";
+  position: { x: number; y: number };
+}
+
+// Task Card Props interface
+export interface TaskCardProps {
+  task: Task;
+  onToggleComplete: (id: string) => void;
+  onEdit?: (task: Task) => void;
+  isSelected?: boolean;
+  onSelect?: (taskId: string, isSelected: boolean) => void;
+}
+
+// Weekly Calendar Props interface
+export interface WeeklyCalendarProps {
+  tasks: Task[];
+  scheduleItems: ScheduleItem[];
+  setScheduleItems: (items: ScheduleItem[] | ((prev: ScheduleItem[]) => ScheduleItem[])) => void;
+  timePreferences: TimePreferences;
+}
+
+// Time Preferences Dialog Props interface
+export interface TimePreferencesDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (preferences: TimePreferences) => void;
+}

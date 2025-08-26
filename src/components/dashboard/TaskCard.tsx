@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar, Clock, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,13 +20,15 @@ interface TaskCardProps {
   task: Task;
   onToggleComplete: (id: string) => void;
   onEdit?: (task: Task) => void;
+  isSelected?: boolean;
+  onSelect?: (taskId: string, isSelected: boolean) => void;
 }
 
-export const TaskCard = ({ task, onToggleComplete, onEdit }: TaskCardProps) => {
+export const TaskCard = ({ task, onToggleComplete, onEdit, isSelected, onSelect }: TaskCardProps) => {
   const priorityColors = {
-    high: "bg-priority-high text-white",
-    medium: "bg-priority-medium text-white", 
-    low: "bg-priority-low text-white",
+    high: "bg-red-500 text-white",
+    medium: "bg-yellow-500 text-white", 
+    low: "bg-green-500 text-white",
   };
 
   const isOverdue = task.deadline < new Date() && !task.completed;
@@ -35,12 +38,20 @@ export const TaskCard = ({ task, onToggleComplete, onEdit }: TaskCardProps) => {
     <Card className={cn(
       "p-4 hover:shadow-card transition-all duration-200 cursor-pointer animate-slide-up",
       task.completed && "opacity-60 bg-muted/50",
-      isOverdue && !task.completed && "border-l-4 border-l-priority-high"
+      isOverdue && !task.completed && "border-l-4 border-l-red-500",
+      isSelected && "ring-2 ring-blue-500"
     )}
     onClick={() => onEdit?.(task)}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
+          {onSelect && (
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={(checked) => onSelect(task.id, checked===true)}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -51,7 +62,7 @@ export const TaskCard = ({ task, onToggleComplete, onEdit }: TaskCardProps) => {
             className={cn(
               "h-6 w-6 p-0 rounded-full border-2",
               task.completed 
-                ? "bg-success text-white border-success" 
+                ? "bg-success text-white border-success"
                 : "border-muted-foreground hover:border-primary"
             )}
           >
@@ -79,8 +90,8 @@ export const TaskCard = ({ task, onToggleComplete, onEdit }: TaskCardProps) => {
         <div className="flex items-center gap-3">
           <div className={cn(
             "flex items-center gap-1",
-            isOverdue && !task.completed && "text-priority-high",
-            isDueSoon && !task.completed && !isOverdue && "text-warning"
+            isOverdue && !task.completed && "text-red-500",
+            isDueSoon && !task.completed && !isOverdue && "text-yellow-500"
           )}>
             <Calendar className="h-3 w-3" />
             <span>
@@ -88,7 +99,7 @@ export const TaskCard = ({ task, onToggleComplete, onEdit }: TaskCardProps) => {
             </span>
             {isOverdue && !task.completed && <AlertCircle className="h-3 w-3" />}
           </div>
-          
+                     
           {task.estimatedTime && (
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
