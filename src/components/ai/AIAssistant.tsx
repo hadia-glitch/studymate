@@ -1,364 +1,745 @@
-import { useState, useRef, useEffect } from "react";
+// src/components/ai/AIAssistant.tsx
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { MessageSquare, Send, X, Bot as BotIcon, User as UserIcon } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Bot, Send, Maximize2, Minimize2, Plus, Calendar, Clock } from "lucide-react";
-import { Task } from "@/components/dashboard/TaskCard";
-import { StickyNoteData } from "@/components/dashboard/StickyNote";
 
+// =========================
+// Types
+// =========================
+type Sender = "user" | "bot";
+
+
+interface Message {
+  id: string;
+  text: string;
+  sender: Sender;
+  timestamp: Date;
+}
+
+interface DBScheduleItem {
+  id: string;
+  user_id: string;
+  schedule_date: string; // YYYY-MM-DD
+  interval_time: string; // "HH:mm - HH:mm"
+  task_description: string;
+  task_id: string | null;
+  is_auto_scheduled: boolean | null;
+}
+
+interface DBTask {
+  id: string;
+  user_id: string;
+  title: string;
+  estimated_time: number | null; // minutes
+  deadline: string | null; // ISO
+  completed: boolean | null;
+}
+
+interface TimeSlot {
+  start: number; // minutes from 00:00
+  end: number;   // minutes from 00:00
+}
+
+// =========================
+// Utilities
+// =========================
+
+/** Convert "HH:mm" to minutes from midnight */
+const hmToMinutes = (hm: string): number => {
+  const [h, m] = hm.split(":").map((n) => parseInt(n, 10));
+  const hour = Number.isFinite(h) ? h : 0;
+  const min = Number.isFinite(m) ? m : 0;
+  return Math.max(0, Math.min(23 * 60 + 59, hour * 60 + min));
+};
+
+/** Convert minutes from midnight to "HH:mm" */
+const minutesToHM = (mins: number): string => {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.floor(mins)));
+  const h = Math.floor(clamped / 60)
+    .toString()
+    .padStart(2, "0");
+  const m = (clamped % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+};
+
+/** Parse "HH:mm - HH:mm" → TimeSlot (in minutes) */
+const parseTimeRange = (range: string): TimeSlot | null => {
+  try {
+    const [startStr, endStr] = range.split(" - ").map((s) => s.trim());
+    if (!startStr || !endStr) return null;
+    const start = hmToMinutes(startStr);
+    const end = hmToMinutes(endStr);
+    if (end <= start) return null;
+    return { start, end };
+  } catch {
+    return null;
+  }
+};
+
+/** Format a time slot given start (minutes) and duration (minutes) into "HH:mm - HH:mm" */
+const formatInterval = (startMin: number, durationMin: number): string => {
+  const start = minutesToHM(startMin);
+  const end = minutesToHM(startMin + durationMin);
+  return `${start} - ${end}`;
+};
+
+/** Returns ISO date YYYY-MM-DD for a Date (local) */
+const toISODate = (d: Date) => {
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+/** Add days to a date (returns new Date) */
+const addDays = (date: Date, days: number): Date => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+/** Strip time part */
+const startOfDay = (d: Date) => {
+  const nd = new Date(d);
+  nd.setHours(0, 0, 0, 0);
+  return nd;
+};
+
+/** Case-insensitive contains */
+const containsCI = (a: string, b: string) => a.toLowerCase().includes(b.toLowerCase());
+
+/** Parse intents and parameters from user message */
+const parseIntent = (msg: string) => {
+  const text = msg.trim().toLowerCase();
+
+  // What should I do now / next
+  if (
+    text.includes("what should i do now") ||
+    text.includes("what should i be doing") ||
+    (text.includes("what") && text.includes("do") && text.includes("now"))
+  ) {
+    return { intent: "what_now" as const };
+  }
+  if (text.includes("what's next") || text.includes("whats next") || text.includes("next task")) {
+    return { intent: "what_next" as const };
+  }
+
+  // Move / reschedule
+  if (text.startsWith("move ") || text.startsWith("reschedule ")) {
+    return { intent: "move" as const };
+  }
+
+  // Add task (optional — can be extended)
+  if (text.startsWith("add task")) {
+    return { intent: "add_task" as const };
+  }
+
+  return { intent: "chat" as const };
+};
+
+/** Extract title or interval/date from "move ..." message */
+const parseMoveCommand = (raw: string): {
+  titleOrInterval?: string;
+  targetDate?: Date;
+  targetTimeMinutes?: number; // desired start time, optional
+} => {
+  // Examples:
+  // "move algebra to tomorrow 14:30"
+  // "reschedule 09:00 - 10:00 to today 15:00"
+  // "move calculus to 2025-08-27"
+  // If no date: default today
+  const text = raw.trim();
+
+  // Try to isolate the part after the keyword
+  const body = text.replace(/^move\s+|^reschedule\s+/i, "").trim();
+
+  // Find " to " separator
+  const toIdx = body.toLowerCase().lastIndexOf(" to ");
+  let identifier = body;
+  let tail = "";
+
+  if (toIdx >= 0) {
+    identifier = body.slice(0, toIdx).trim();
+    tail = body.slice(toIdx + 4).trim(); // after " to "
+  }
+
+  // identifier could be a time interval or a task title
+  // Normalize interval by ensuring we have " - " if written as "09:00-10:00"
+  let titleOrInterval = identifier.replace(/-/g, " - ").replace(/\s{2,}/g, " ");
+
+  // Parse tail into date and/or time
+  let targetDate: Date | undefined;
+  let targetTimeMinutes: number | undefined;
+
+  const now = new Date();
+
+  if (tail) {
+    // detect "today" / "tomorrow"
+    if (/\btoday\b/i.test(tail)) {
+      targetDate = startOfDay(now);
+    } else if (/\btomorrow\b/i.test(tail)) {
+      targetDate = startOfDay(addDays(now, 1));
+    }
+
+    // detect explicit date YYYY-MM-DD
+    const dateMatch = tail.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (dateMatch) {
+      const d = new Date(dateMatch[1]);
+      if (!isNaN(d.getTime())) targetDate = startOfDay(d);
+    }
+
+    // detect time HH:mm
+    const timeMatch = tail.match(/\b([01]\d|2[0-3]|\d):([0-5]\d)\b/);
+    if (timeMatch) {
+      targetTimeMinutes = hmToMinutes(`${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`);
+    }
+  }
+
+  // Default date: today
+  if (!targetDate) targetDate = startOfDay(now);
+
+  return { titleOrInterval, targetDate, targetTimeMinutes };
+};
+
+/** Fetch current user */
+const getUser = async () => {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user) return null;
+  return data.user;
+};
+
+/** Fetch time preferences (array of "HH:mm - HH:mm") */
+const fetchAvailableTimes = async (userId: string): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from("time_preferences")
+    .select("available_times")
+    .eq("user_id", userId)
+    .single();
+  if (error || !data?.available_times) return [];
+  // Ensure they are strings with " - "
+  return (data.available_times as string[]).map((s) => s.replace(/-/g, " - ").replace(/\s{2,}/g, " "));
+};
+
+/** Fetch schedule items for a specific date */
+const fetchScheduleByDate = async (userId: string, dateISO: string): Promise<DBScheduleItem[]> => {
+  const { data, error } = await supabase
+    .from("schedule_items")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("schedule_date", dateISO)
+    .order("interval_time", { ascending: true });
+  if (error || !data) return [];
+  return data as DBScheduleItem[];
+};
+
+/** Fetch schedule items for a date range (inclusive) */
+const fetchScheduleRange = async (userId: string, fromISO: string, toISO: string): Promise<DBScheduleItem[]> => {
+  const { data, error } = await supabase
+    .from("schedule_items")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("schedule_date", fromISO)
+    .lte("schedule_date", toISO)
+    .order("schedule_date", { ascending: true })
+    .order("interval_time", { ascending: true });
+  if (error || !data) return [];
+  return data as DBScheduleItem[];
+};
+
+/** Fetch task by ID */
+const fetchTaskById = async (taskId: string): Promise<DBTask | null> => {
+  const { data, error } = await supabase.from("tasks").select("*").eq("id", taskId).single();
+  if (error || !data) return null;
+  return data as DBTask;
+};
+
+/** Check if interval conflicts with existing items on same date */
+const hasConflict = (interval: string, existing: DBScheduleItem[]) => {
+  const slot = parseTimeRange(interval);
+  if (!slot) return true;
+  for (const item of existing) {
+    const other = parseTimeRange(item.interval_time);
+    if (!other) continue;
+    // overlap if not (end <= other.start || start >= other.end)
+    if (!(slot.end <= other.start || slot.start >= other.end)) return true;
+  }
+  return false;
+};
+
+/** Find earliest available slot on a given date respecting availability + conflicts + earliestStartMin */
+const findEarliestAvailableSlotOnDate = (
+  date: Date,
+  availableWindows: string[],
+  existing: DBScheduleItem[],
+  durationMin: number,
+  earliestStartMin?: number // minutes (e.g., now+60 if today)
+): string | null => {
+  const windows = availableWindows
+    .map(parseTimeRange)
+    .filter(Boolean) as TimeSlot[];
+
+  // Sort windows by start
+  windows.sort((a, b) => a.start - b.start);
+
+  for (const w of windows) {
+    // Step in 30-min increments inside each window
+    const step = 30;
+    let start = Math.max(w.start, earliestStartMin ?? 0);
+    // align to next 30-min boundary
+    start = Math.ceil(start / step) * step;
+
+    while (start + durationMin <= w.end) {
+      const candidate = formatInterval(start, durationMin);
+      if (!hasConflict(candidate, existing)) {
+        return candidate;
+      }
+      start += step;
+    }
+  }
+
+  return null;
+};
+
+/** Get current or next task for a given date (assumes items sorted) */
+const getCurrentOrNext = (dateItems: DBScheduleItem[], now: Date) => {
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  for (const item of dateItems) {
+    const slot = parseTimeRange(item.interval_time);
+    if (!slot) continue;
+    if (nowMin >= slot.start && nowMin <= slot.end) {
+      return { type: "current" as const, item };
+    }
+    if (nowMin < slot.start) {
+      return { type: "next" as const, item };
+    }
+  }
+  return null;
+};
+
+/** Try to find scheduled item by title or by exact interval on a date */
+const findScheduledItemByIdentifier = (
+  items: DBScheduleItem[],
+  identifier: string
+): DBScheduleItem | null => {
+  const normalizedInterval = identifier.replace(/-/g, " - ").replace(/\s{2,}/g, " ");
+  // if identifier looks like interval
+  const intervalLike = /^\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*$/.test(normalizedInterval);
+
+  if (intervalLike) {
+    const exact = items.find((it) => it.interval_time.trim() === normalizedInterval.trim());
+    if (exact) return exact;
+  }
+
+  // otherwise, match by task_description
+  const byTitle = items.find((it) => containsCI(it.task_description || "", identifier));
+  return byTitle || null;
+};
+
+/** Delete a scheduled item by id */
+const deleteScheduleItemById = async (id: string) => {
+  await supabase.from("schedule_items").delete().eq("id", id);
+};
+
+/** Insert a schedule item */
+const insertScheduleItem = async (payload: {
+  user_id: string;
+  schedule_date: string;
+  interval_time: string;
+  task_description: string;
+  task_id?: string | null;
+  is_auto_scheduled?: boolean;
+}) => {
+  await supabase.from("schedule_items").insert(payload);
+};
+
+// =========================
+// Component
+// =========================
+import {  ScheduleItem } from "@/hooks/useSchedule";
+import { toast } from "@/components/ui/use-toast";
+import { Task } from "@/components/dashboard/TaskCard";
 interface AIAssistantProps {
   isOpen: boolean;
   onClose: () => void;
   tasks: Task[];
-  onAddTask: (task: Omit<Task, "id">) => void;
-  onAddStickyNote: () => void;
-  onClearSlot: (date: Date, time: string) => void;
-  schedule?: any[];
-  onScheduleUpdate?: (schedule: any[]) => void;
+  scheduleItems: ScheduleItem[];
+  onAddTask: (taskData: Omit<Task, "id">) => Promise<void>;
+  onAddStickyNote: () => Promise<void>;
+  onUpdateScheduleItem: (itemId: string, updates: Partial<ScheduleItem>) => Promise<void>;
+
+  onDeleteScheduleItem: (id: string) => Promise<void>;
+  onAddScheduleItem: (item: Omit<ScheduleItem, "id">) => Promise<void>;
+  timePreferences: { available: string[] };
+  user: any;
+  fetchScheduleItems: (userId: string) => Promise<Omit<ScheduleItem, "id">[]>;
+
+
+  generateSchedule: () => Promise<void>;
+  toast: typeof toast;
 }
 
-interface Message {
-  id: string;
-  content: string;
-  sender: "user" | "ai";
-  timestamp: Date;
-}
-
-export const AIAssistant = ({ isOpen, onClose, tasks, onAddTask, onAddStickyNote, onClearSlot, schedule = [], onScheduleUpdate }: AIAssistantProps) => {
+export const AIAssistant = ({
+  isOpen,
+  onClose,
+  tasks,
+  scheduleItems,
+  onAddTask,
+  onAddStickyNote,
+  onUpdateScheduleItem,
+  onDeleteScheduleItem,
+  onAddScheduleItem,
+  timePreferences,
+  user,
+  fetchScheduleItems,
+  generateSchedule,
+  toast,
+}: AIAssistantProps) => {
+  
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: "1",
-      content: "Hello! I'm your AI study assistant. I can help you generate schedules, manage tasks, create reminders, and answer questions about your work. Try asking me 'Generate my schedule for this week' or 'What work do I have for today?'",
-      sender: "ai",
-      timestamp: new Date()
-    }
+      id: "m1",
+      text:
+        "Hi! I’m your StudyMate AI assistant. Ask me:\n• “What should I do now?”\n• “What’s my next task?”\n• “Move algebra to tomorrow 14:30”\n• “Reschedule 09:00 - 10:00 to today 15:00”",
+      sender: "bot",
+      timestamp: new Date(),
+    },
   ]);
-  const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false);
-  const [userPreferences, setUserPreferences] = useState<{availableHours?: string, unavailableHours?: string}>({});
-  const [inputValue, setInputValue] = useState("");
-  const [isExpanded, setIsExpanded] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
-  useEffect(() => {
-    const handleAutoSend = (event: CustomEvent) => {
-      setInputValue(event.detail);
-      setTimeout(() => handleSendMessage(), 100);
-    };
-    
-    window.addEventListener('autoSendMessage', handleAutoSend as EventListener);
-    return () => window.removeEventListener('autoSendMessage', handleAutoSend as EventListener);
-  }, []);
-
-  const generateSchedule = async (availableHours: string, unavailableHours: string) => {
-    setIsGeneratingSchedule(true);
-    
-    // Simulate AI processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const workingHours = availableHours.split('-').map(h => parseInt(h.trim()));
-    const unavailableRanges = unavailableHours.split(',').map(range => range.trim());
-    
-    const generatedSchedule = tasks.filter(task => !task.completed).map((task, index) => ({
-      id: `schedule-${index}`,
-      task,
-      day: new Date(Date.now() + (index % 7) * 24 * 60 * 60 * 1000),
-      startTime: workingHours[0] + (index * 2) % (workingHours[1] - workingHours[0]),
-      duration: Math.min(task.estimatedTime / 60, 3)
-    }));
-    
-    if (onScheduleUpdate) {
-      onScheduleUpdate(generatedSchedule);
-    }
-    
-    setIsGeneratingSchedule(false);
-    return generatedSchedule;
+  const pushMessage = (text: string, sender: Sender) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        text,
+        sender,
+        timestamp: new Date(),
+      },
+    ]);
   };
 
-  const processAIResponse = async (userMessage: string): Promise<string> => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    // Check for schedule generation requests
-    if (lowerMessage.includes("generate") && lowerMessage.includes("schedule")) {
-      if (!userPreferences.availableHours) {
-        setUserPreferences({ availableHours: undefined, unavailableHours: undefined });
-        return "I'd love to help you generate an optimized schedule! To create the best plan for you, I need to know:\n\n1. What hours would you prefer to work/study? (e.g., '8-22' for 8 AM to 10 PM)\n2. What hours are you unavailable? (e.g., '12-13, 18-19' for lunch and dinner)\n\nPlease tell me your preferences and I'll create your personalized schedule!";
-      }
-      
-      if (userPreferences.availableHours && userPreferences.unavailableHours) {
-        await generateSchedule(userPreferences.availableHours, userPreferences.unavailableHours);
-        return `Perfect! I've generated your optimized schedule based on your preferences:\n\n• Available hours: ${userPreferences.availableHours}\n• Unavailable hours: ${userPreferences.unavailableHours}\n\nYour schedule includes ${tasks.filter(t => !t.completed).length} tasks distributed across the week. You can now view your schedule in the Smart Schedule section above, or ask me specific questions about your schedule!`;
-      }
+  // ============== Intent handlers ==============
+
+  const handleWhatNow = async () => {
+    const user = await getUser();
+    if (!user) return pushMessage("Please sign in to access your schedule.", "bot");
+
+    const today = startOfDay(new Date());
+    const todayISO = toISODate(today);
+    const items = await fetchScheduleByDate(user.id, todayISO);
+
+    if (items.length === 0) {
+      return pushMessage("You have nothing scheduled today 🎉", "bot");
     }
-    
-    // Check for schedule preference responses
-    if (lowerMessage.includes("-") && (lowerMessage.includes("am") || lowerMessage.includes("pm") || /\d+\-\d+/.test(lowerMessage))) {
-      const timeRangeMatch = userMessage.match(/(\d+(?:\-\d+)?(?:\s*(?:am|pm))?)/gi);
-      if (timeRangeMatch && !userPreferences.availableHours) {
-        setUserPreferences(prev => ({ ...prev, availableHours: timeRangeMatch[0] }));
-        return "Great! I've noted your available hours. Now, when are you typically unavailable? (e.g., '12-13, 18-19' for lunch and dinner breaks, or 'none' if you're flexible)";
-      } else if (timeRangeMatch && userPreferences.availableHours && !userPreferences.unavailableHours) {
-        const unavailable = lowerMessage.includes("none") ? "none" : userMessage;
-        setUserPreferences(prev => ({ ...prev, unavailableHours: unavailable }));
-        await generateSchedule(userPreferences.availableHours, unavailable);
-        return `Perfect! I've generated your schedule with:\n• Available: ${userPreferences.availableHours}\n• Unavailable: ${unavailable}\n\nYour personalized schedule is ready! Check the Smart Schedule section above or ask me about your upcoming tasks.`;
-      }
+
+    const now = new Date();
+    const status = getCurrentOrNext(items, now);
+    if (!status) {
+      return pushMessage("You’ve finished all tasks for today. Nice work! 🎉", "bot");
     }
-    
-    // Check for current schedule queries
-    if (lowerMessage.includes("what") && (lowerMessage.includes("now") || lowerMessage.includes("should i do"))) {
-      if (schedule.length === 0) {
-        return "You don't have a generated schedule yet. Would you like me to create one for you? Just say 'Generate my schedule for this week' and I'll help you set it up!";
-      }
-      
-      const now = new Date();
-      const currentHour = now.getHours();
-      const todaySchedule = schedule.filter(item => 
-        item.day.toDateString() === now.toDateString()
+
+    if (status.type === "current") {
+      return pushMessage(
+        `Right now: “${status.item.task_description}” (${status.item.interval_time}).`,
+        "bot"
       );
-      
-      const currentTask = todaySchedule.find(item => 
-        currentHour >= item.startTime && currentHour < (item.startTime + item.duration)
+    }
+
+    return pushMessage(
+      `Next up: “${status.item.task_description}” at ${status.item.interval_time}.`,
+      "bot"
+    );
+  };
+
+  const handleWhatNext = async () => {
+    const user = await getUser();
+    if (!user) return pushMessage("Please sign in to access your schedule.", "bot");
+
+    // Look across today and tomorrow for the very next item
+    const today = startOfDay(new Date());
+    const tomorrow = startOfDay(addDays(today, 1));
+    const items = await fetchScheduleRange(user.id, toISODate(today), toISODate(tomorrow));
+
+    if (items.length === 0) {
+      return pushMessage("No upcoming tasks scheduled in the next day.", "bot");
+    }
+
+    const now = new Date();
+    const todayItems = items.filter((i) => i.schedule_date === toISODate(today));
+    const statusToday = getCurrentOrNext(todayItems, now);
+
+    if (statusToday && statusToday.type !== "current") {
+      return pushMessage(
+        `Next today: “${statusToday.item.task_description}” at ${statusToday.item.interval_time}.`,
+        "bot"
       );
-      
-      if (currentTask) {
-        return `Right now you should be working on: **${currentTask.task.title}**\n\nPriority: ${currentTask.task.priority}\nEstimated time: ${currentTask.task.estimatedTime} minutes\nDeadline: ${currentTask.task.deadline.toLocaleDateString()}\n\n${currentTask.task.description}`;
-      } else {
-        const nextTask = todaySchedule.find(item => item.startTime > currentHour);
-        if (nextTask) {
-          return `You're currently in a break period. Your next task is **${nextTask.task.title}** at ${nextTask.startTime}:00. Take this time to relax or prepare!`;
+    }
+
+    // otherwise pick the earliest item after today
+    const tomorrowItems = items.filter((i) => i.schedule_date === toISODate(tomorrow));
+    if (tomorrowItems.length) {
+      const first = tomorrowItems[0];
+      return pushMessage(
+        `Next is tomorrow: “${first.task_description}” at ${first.interval_time}.`,
+        "bot"
+      );
+    }
+
+    return pushMessage("No upcoming tasks scheduled soon.", "bot");
+  };
+
+  const handleMove = async (raw: string) => {
+    const user = await getUser();
+    if (!user) return pushMessage("Please sign in to modify your schedule.", "bot");
+
+    const { titleOrInterval, targetDate, targetTimeMinutes } = parseMoveCommand(raw);
+
+    if (!titleOrInterval) {
+      return pushMessage(
+        `Please tell me which task to move (e.g., “move algebra to tomorrow 14:30” or “reschedule 09:00 - 10:00 to today 15:00”).`,
+        "bot"
+      );
+    }
+
+    const dateISO = toISODate(targetDate!);
+
+    // Load items for that date (to search by interval/title) and also today if date omitted
+    const itemsThatDay = await fetchScheduleByDate(user.id, dateISO);
+
+    // If user didn’t specify a date in the command but meant the *current* scheduled item,
+    // try checking today’s date first (already handled by defaulting targetDate to today).
+
+    // If not found for that date, also search the next 6 days (be forgiving).
+    let targetItem = findScheduledItemByIdentifier(itemsThatDay, titleOrInterval);
+    let searchDateISO = dateISO;
+
+    if (!targetItem) {
+      for (let i = -3; i <= 7 && !targetItem; i++) {
+        const d = toISODate(addDays(targetDate!, i));
+        const altItems = await fetchScheduleByDate(user.id, d);
+        const match = findScheduledItemByIdentifier(altItems, titleOrInterval);
+        if (match) {
+          targetItem = match;
+          searchDateISO = d;
+          break;
         }
-        return "You don't have any scheduled tasks right now. Great job if you've completed everything, or consider adding new tasks to your schedule!";
       }
     }
-    
-    // Check for work/schedule queries
-    if (lowerMessage.includes("work") && (lowerMessage.includes("today") || lowerMessage.includes("now"))) {
-      const todayTasks = tasks.filter(task => !task.completed);
-      if (todayTasks.length === 0) {
-        return "You don't have any pending tasks for today. Great job staying on top of your work!";
+
+    if (!targetItem) {
+      return pushMessage(
+        `I couldn’t find a scheduled item matching “${titleOrInterval}”. Please provide the exact interval (“HH:mm - HH:mm”) or a unique part of the title.`,
+        "bot"
+      );
+    }
+
+    // Get the original task’s estimated time if available
+    let durationMin = 60;
+    if (targetItem.task_id) {
+      const t = await fetchTaskById(targetItem.task_id);
+      if (t?.estimated_time && t.estimated_time > 0) durationMin = t.estimated_time;
+    }
+
+    // Figure out the target date we’re moving *to*
+    const moveToDateISO = toISODate(targetDate!);
+
+    // Load availability + existing items for the target date
+    const availableTimes = await fetchAvailableTimes(user.id);
+    if (!availableTimes.length) {
+      return pushMessage(
+        "You haven’t set your available times yet. Please set them in Time Preferences first.",
+        "bot"
+      );
+    }
+
+    const targetDayItems = await fetchScheduleByDate(user.id, moveToDateISO);
+
+    // If the date is today, ensure we start at least 60 min from now
+    let earliestStartMin: number | undefined = undefined;
+    const now = new Date();
+    const isToday = toISODate(startOfDay(now)) === moveToDateISO;
+    if (isToday) {
+      const minStart = now.getHours() * 60 + now.getMinutes() + 60; // now + 60 minutes
+      earliestStartMin = minStart;
+    }
+
+    // If the user provided a specific time, prefer that (if free/valid). Otherwise, find earliest slot.
+    let newInterval: string | null = null;
+
+    if (typeof targetTimeMinutes === "number") {
+      const candidate = formatInterval(
+        Math.max(earliestStartMin ?? 0, targetTimeMinutes),
+        durationMin
+      );
+      if (!hasConflict(candidate, targetDayItems) && parseTimeRange(candidate)) {
+        newInterval = candidate;
+      } else {
+        // fall back to earliest available slot after this time
+        const after = Math.max(earliestStartMin ?? 0, targetTimeMinutes);
+        newInterval = findEarliestAvailableSlotOnDate(
+          new Date(moveToDateISO),
+          availableTimes,
+          targetDayItems,
+          durationMin,
+          after
+        );
       }
-      const taskList = todayTasks.map(task => `• ${task.title} (${task.priority} priority, due ${task.deadline.toLocaleDateString()})`).join('\n');
-      return `Here's your current work for today:\n\n${taskList}\n\nWould you like me to help you prioritize these or add any new tasks?`;
+    } else {
+      // No explicit time → find earliest available (respect earliestStartMin if today)
+      newInterval = findEarliestAvailableSlotOnDate(
+        new Date(moveToDateISO),
+        availableTimes,
+        targetDayItems,
+        durationMin,
+        earliestStartMin
+      );
     }
 
-    // Check for task addition requests
-    if (lowerMessage.includes("add") && lowerMessage.includes("task")) {
-      // Extract task details from the message
-      let title = "New Task";
-      let priority: "low" | "medium" | "high" = "medium";
-      let category = "General";
-      let deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); // Default to tomorrow
-      
-      // Simple parsing for task details
-      if (lowerMessage.includes("math")) {
-        title = "Study Mathematics";
-        category = "Mathematics";
-      } else if (lowerMessage.includes("study")) {
-        title = "Study Session";
-        category = "Study";
-      } else if (lowerMessage.includes("assignment")) {
-        title = "Complete Assignment";
-        category = "Assignment";
-      }
-      
-      if (lowerMessage.includes("high priority") || lowerMessage.includes("urgent")) {
-        priority = "high";
-      } else if (lowerMessage.includes("low priority")) {
-        priority = "low";
-      }
-      
-      if (lowerMessage.includes("tomorrow")) {
-        deadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      } else if (lowerMessage.includes("today")) {
-        deadline = new Date();
-      } else if (lowerMessage.includes("next week")) {
-        deadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      }
-
-      const newTask = {
-        title,
-        description: `Task created via AI assistant: ${userMessage}`,
-        priority,
-        deadline,
-        completed: false,
-        category,
-        estimatedTime: 60
-      };
-      
-      onAddTask(newTask);
-      return `Perfect! I've added "${title}" to your task list with ${priority} priority, due ${deadline.toLocaleDateString()}. The task is now visible in your schedule.`;
+    if (!newInterval) {
+      return pushMessage(
+        `No free slots available on ${moveToDateISO} for a ${durationMin}-minute session.`,
+        "bot"
+      );
     }
 
-    // Check for routine task setup
-    if (lowerMessage.includes("routine") || (lowerMessage.includes("breakfast") || lowerMessage.includes("gym") || lowerMessage.includes("lunch") || lowerMessage.includes("dinner")) && lowerMessage.includes("time")) {
-      return "Great! I can help you set up routine tasks like meals, gym sessions, and other daily activities. For example:\n\n• 'Set breakfast time 8:00 AM - 9:00 AM daily'\n• 'Add gym routine 6:00 PM - 7:30 PM weekdays'\n• 'Schedule lunch break 12:00 PM - 1:00 PM'\n\nThese will be blocked in your schedule so new tasks won't be scheduled during these times. What routine would you like to add?";
-    }
+    // Apply change: delete old → insert new
+    await deleteScheduleItemById(targetItem.id);
 
-    // Check for reminder addition
-    if (lowerMessage.includes("add") && (lowerMessage.includes("reminder") || lowerMessage.includes("note"))) {
-      onAddStickyNote();
-      return "I've created a new sticky note for you! You can find it in the Quick Reminders section below. Click on it to add your reminder text.";
-    }
+    await insertScheduleItem({
+      user_id: user.id,
+      schedule_date: moveToDateISO,
+      interval_time: newInterval,
+      task_description: targetItem.task_description,
+      task_id: targetItem.task_id,
+      is_auto_scheduled: true,
+    });
 
-    // Check for schedule clearing requests
-    if (lowerMessage.includes("free up") && lowerMessage.includes("slot")) {
-      if (schedule.length === 0) {
-        return "You don't have a generated schedule yet. Please generate a schedule first, then I can help you free up specific time slots!";
-      }
-      return "I can help you free up time slots and reschedule tasks! Which specific day and time would you like to clear? For example:\n• 'Free up tomorrow at 2 PM'\n• 'Clear Friday morning'\n• 'Move my math study session to another day'\n\nI'll find the best alternative slot before the task's deadline.";
-    }
-
-    // Check for priority queries
-    if (lowerMessage.includes("priority") || lowerMessage.includes("important")) {
-      const highPriorityTasks = tasks.filter(task => task.priority === "high" && !task.completed);
-      if (highPriorityTasks.length === 0) {
-        return "You don't have any high-priority tasks right now. Great job managing your workload!";
-      }
-      const taskList = highPriorityTasks.map(task => `• ${task.title} (due ${task.deadline.toLocaleDateString()})`).join('\n');
-      return `Here are your high-priority tasks:\n\n${taskList}\n\nI recommend focusing on these first.`;
-    }
-
-    // Check for time/schedule questions
-    if (lowerMessage.includes("when") || lowerMessage.includes("schedule")) {
-      return "I can see your current schedule! You have several tasks with upcoming deadlines. Would you like me to help you prioritize them or suggest an optimal study schedule?";
-    }
-
-    // Default response
-    return `I understand you're asking about "${userMessage}". I can help you with:
-    
-• **Generate Schedule**: Create an AI-optimized weekly schedule
-• **Current Tasks**: Check what you should be doing right now
-• **Add Tasks**: Create new tasks with deadlines and priorities
-• **Free Up Slots**: Move tasks to different times
-• **Quick Reminders**: Add sticky notes for important things
-
-Try asking me: "Generate my schedule", "What should I do now?", or "Add a task to study biology"`;;
+    return pushMessage(
+      `Rescheduled “${targetItem.task_description}” to ${moveToDateISO} at ${newInterval}.`,
+      "bot"
+    );
   };
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: inputValue,
-      sender: "user",
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-
-    // Simulate AI processing delay
-    setTimeout(async () => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        content: await processAIResponse(inputValue),
-        sender: "ai",
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, aiResponse]);
-    }, 500);
-
-    setInputValue("");
+  // Generic small talk fallback
+  const handleChat = async () => {
+    const variants = [
+      "I’m here to help you plan. Try “What should I do now?”",
+      "Need a hand rescheduling? Say “Move algebra to tomorrow 14:30”.",
+      "Ask me “What’s my next task?”",
+    ];
+    pushMessage(variants[Math.floor(Math.random() * variants.length)], "bot");
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  // ============== Send ==============
+
+  const handleSend = async () => {
+    const txt = input.trim();
+    if (!txt) return;
+
+    pushMessage(txt, "user");
+    setInput("");
+
+    const { intent } = parseIntent(txt);
+
+    if (intent === "what_now") {
+      await handleWhatNow();
+      return;
     }
+    if (intent === "what_next") {
+      await handleWhatNext();
+      return;
+    }
+    if (intent === "move") {
+      await handleMove(txt);
+      return;
+    }
+    // (optional) extend with "add_task" intent to write into tasks table
+
+    await handleChat();
   };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") handleSend();
+  };
+
+  // =========================
+  // UI
+  // =========================
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={`${isExpanded ? "max-w-4xl h-[80vh]" : "max-w-2xl h-[600px]"} transition-all duration-300`}>
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-primary-light flex items-center justify-center">
-              <Bot className="h-6 w-6 text-primary-foreground" />
+      <DialogContent className="w-[400px] h-[520px] p-0 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-primary/5 to-secondary/5">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+              <BotIcon className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <DialogTitle className="text-xl">AI Study Assistant</DialogTitle>
-              <p className="text-sm text-muted-foreground">Your intelligent task & schedule manager</p>
+              <h3 className="font-semibold text-sm">StudyMate AI</h3>
+              <p className="text-xs text-muted-foreground">Online</p>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="h-8 w-8 p-0"
-          >
-            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          </Button>
-        </DialogHeader>
-
-        <div className="flex flex-col h-full">
-          {/* Quick Actions */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setInputValue("Generate my schedule for this week")}>
-              <Calendar className="h-3 w-3 mr-1" />
-              Generate Schedule
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setInputValue("What should I be doing right now?")}>
-              <Clock className="h-3 w-3 mr-1" />
-              What Now?
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setInputValue("Add a new study task")}>
-              <Plus className="h-3 w-3 mr-1" />
-              Add Task
-            </Button>
-          </div>
-
-          {/* Messages */}
-          <ScrollArea className="flex-1 mb-4 max-h-96" ref={scrollAreaRef}>
-            <div className="space-y-4 pr-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                      message.sender === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      {message.sender === "ai" && (
-                        <Bot className="h-4 w-4 mt-1 flex-shrink-0 text-primary" />
-                      )}
-                      <div>
-                        <p className="text-sm whitespace-pre-line">{message.content}</p>
-                        <p className="text-xs opacity-70 mt-1">
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                    </div>
+          
+        </div>
+  
+        {/* Messages */}
+        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+          <div className="space-y-3">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex gap-2 ${m.sender === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {m.sender === "bot" && (
+                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                    <BotIcon className="h-3 w-3 text-primary" />
                   </div>
+                )}
+                <div
+                  className={`max-w-[80%] p-3 rounded-lg text-sm whitespace-pre-line ${
+                    m.sender === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                  }`}
+                >
+                  <p>{m.text}</p>
+                  <p className="text-[10px] opacity-70 mt-1">
+                    {m.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </p>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-
-          {/* Input */}
+                {m.sender === "user" && (
+                  <div className="h-6 w-6 rounded-full bg-secondary/20 flex items-center justify-center flex-shrink-0 mt-1">
+                    <UserIcon className="h-3 w-3" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+  
+        {/* Input */}
+        <div className="p-4 border-t">
           <div className="flex gap-2">
             <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Ask me about your tasks, schedule, or tell me to add something..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder='e.g., "What should I do now?" or "Move algebra to tomorrow 14:30"'
               className="flex-1"
             />
-            <Button onClick={handleSendMessage} disabled={!inputValue.trim()}>
+            <Button onClick={handleSend} size="icon">
               <Send className="h-4 w-4" />
             </Button>
           </div>
@@ -366,4 +747,6 @@ Try asking me: "Generate my schedule", "What should I do now?", or "Add a task t
       </DialogContent>
     </Dialog>
   );
-};
+}  
+
+export default AIAssistant;

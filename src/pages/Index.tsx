@@ -9,7 +9,8 @@ import {
   findEarliestAvailableSlot,
   scheduleMultipleTasks
 } from "@/utils/scheduleUtils";
-import { Sparkles, User, BookOpen, Brain, CheckCircle, AlertCircle } from "lucide-react";
+import { AIAssistant } from "@/components/ai/AIAssistant";
+import { Sparkles, User, BookOpen, Brain, CheckCircle, AlertCircle,Bot,MessageCircle } from "lucide-react";
 import { TaskFormDialog } from "@/components/dashboard/TaskFormDialog";
 import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
 import { StickyNote } from "@/components/dashboard/StickyNote";
@@ -54,7 +55,7 @@ const Index = () => {
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const [showScheduleOptimizer, setShowScheduleOptimizer] = useState(false);
   const [showTimePreferences, setShowTimePreferences] = useState(false);
-
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
   const { tasks, loading: tasksLoading, addTask, updateTask, deleteTask } = useTasks();
   const { 
     scheduleItems, 
@@ -283,7 +284,17 @@ const generateSchedule = async () => {
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
       <div className="container mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8">
-          <div>
+          
+          <div className="flex items-center gap-4">
+            {/* AI Assistant Button */}
+            <Button
+              onClick={() => setShowAIAssistant(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
+            >
+              <Bot className="h-5 w-5" />
+              
+              AI Assistant
+            </Button>
             <h1 className="text-3xl font-bold text-foreground">StudyMate Dashboard</h1>
             <p className="text-muted-foreground mt-1">
               {new Date().toLocaleDateString("en-US", { 
@@ -492,23 +503,26 @@ const generateSchedule = async () => {
         </div>
       </div>
 
-      {showScheduleOptimizer && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">AI Schedule Optimizer</h2>
-              <Button variant="ghost" onClick={() => setShowScheduleOptimizer(false)}>
-                ✕
-              </Button>
-            </div>
-            <ScheduleOptimizer 
-              tasks={safeTasks.filter(task => selectedTasks.includes(task.id))} 
-              onScheduleUpdate={() => {}} 
-              onSlotEdit={() => {}}
-            />
-          </div>
-        </div>
-      )}
+     
+     {/* AI Assistant Dialog */}
+<AIAssistant
+  isOpen={showAIAssistant}
+  onClose={() => setShowAIAssistant(false)}
+  tasks={safeTasks}
+  scheduleItems={safeScheduleItems}
+  onAddTask={addTask}
+  onAddStickyNote={handleAddStickyNote}
+  onUpdateScheduleItem={updateScheduleItem}
+  onDeleteScheduleItem={deleteScheduleItem}
+  onAddScheduleItem={addScheduleItem}
+  timePreferences={timePreferences}
+  user={user}  // ✅ NEW
+  fetchScheduleItems={fetchScheduleItems} // ✅ NEW
+  generateSchedule={generateSchedule} // ✅ NEW
+  toast={toast} // ✅ NEW
+/>
+
+
 
     
 
