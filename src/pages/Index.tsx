@@ -35,13 +35,18 @@ const Index = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { tasks, loading: tasksLoading, addTask, toggleComplete } = useTasks();
-  const { scheduleItems, bulkUpdateScheduleItems } = useSchedule();
+  const { scheduleItems, addScheduleItem, updateScheduleItem, deleteScheduleItem, bulkUpdateScheduleItems } = useSchedule();
+
   const { stickyNotes, addStickyNote, updateStickyNote, deleteStickyNote } = useStickyNotes();
+
+  // Ensure scheduleItems is always an array
+  const safeScheduleItems = Array.isArray(scheduleItems) ? scheduleItems : [];
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
 
   // Helper function to check if a time slot is available
   const isTimeSlotAvailable = (date: string, timeSlot: string): boolean => {
     // Check if slot is already occupied in schedule
-    const isOccupied = scheduleItems.some(item =>
+    const isOccupied = safeScheduleItems.some(item =>
       item.date === date && item.interval === timeSlot
     );
 
@@ -84,16 +89,16 @@ const Index = () => {
   };
 
   const generateSchedule = () => {
-    if (tasks.length === 0) return;
+    if (safeTasks.length === 0) return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // Filter tasks that need scheduling (not completed and deadline is in the future)
-    const tasksToSchedule = tasks.filter(task =>
+    const tasksToSchedule = safeTasks.filter(task =>
       !task.completed &&
       task.deadline > today &&
-      !scheduleItems.some(item => item.taskId === task.id) // Don't reschedule already scheduled tasks
+      !safeScheduleItems.some(item => item.taskId === task.id) // Don't reschedule already scheduled tasks
     );
 
     if (tasksToSchedule.length === 0) return;
@@ -156,8 +161,8 @@ const Index = () => {
       }
     });
 
-    // Add new schedule items to existing ones
-    bulkUpdateScheduleItems([...scheduleItems, ...newScheduleItems]);
+    // Add new schedule items to existing ones (with safety check)
+    bulkUpdateScheduleItems([...safeScheduleItems, ...newScheduleItems]);
   };
 
   const handleAddTask = (newTask: Omit<Task, "id">) => {
@@ -196,8 +201,8 @@ const Index = () => {
     });
   };
 
-  const pendingTasks = tasks.filter(task => !task.completed);
-  const completedTasks = tasks.filter(task => task.completed);
+  const pendingTasks = safeTasks.filter(task => !task.completed);
+  const completedTasks = safeTasks.filter(task => task.completed);
   const highPriorityTasks = pendingTasks.filter(task => task.priority === "high");
 
   if (tasksLoading) {
@@ -226,10 +231,10 @@ const Index = () => {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {tasks.filter(t => t.completed).length}/{tasks.length} tasks completed
+                {safeTasks.filter(t => t.completed).length}/{safeTasks.length} tasks completed
               </span>
               <Badge variant="outline" className="px-3 py-1">
-                {Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100) || 0}% Complete
+                {Math.round((safeTasks.filter(t => t.completed).length / safeTasks.length) * 100) || 0}% Complete
               </Badge>
             </div>
             <Button 
@@ -271,7 +276,7 @@ const Index = () => {
 
           <Card className="p-6 text-center bg-gradient-to-br from-secondary/10 to-secondary/5">
             <Calendar className="h-8 w-8 mx-auto mb-2 text-secondary" />
-            <h3 className="text-2xl font-bold">{scheduleItems.length}</h3>
+            <h3 className="text-2xl font-bold">{safeScheduleItems.length}</h3>
             <p className="text-sm text-muted-foreground">Scheduled</p>
           </Card>
         </div>
@@ -308,11 +313,14 @@ const Index = () => {
 
             {/* Weekly Calendar */}
             <WeeklyCalendar 
-              tasks={tasks}
-              scheduleItems={scheduleItems}
-              setScheduleItems={bulkUpdateScheduleItems}
-              timePreferences={timePreferences}
-              onGenerateSchedule={generateSchedule}
+               tasks={safeTasks}
+               scheduleItems={safeScheduleItems}
+               setScheduleItems={bulkUpdateScheduleItems}  // This should handle bulk updates
+               addScheduleItem={addScheduleItem}
+               updateScheduleItem={updateScheduleItem}
+               deleteScheduleItem={deleteScheduleItem}
+               timePreferences={timePreferences}
+               onGenerateSchedule={generateSchedule}
             />
           </div>
 
@@ -399,7 +407,7 @@ const Index = () => {
       <AIAssistant
         isOpen={showAIAssistant}
         onClose={() => setShowAIAssistant(false)}
-        tasks={tasks}
+        tasks={safeTasks}
         onAddTask={handleAddTask}
         onAddStickyNote={handleAddStickyNote}
         onClearSlot={() => {}}

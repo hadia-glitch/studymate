@@ -94,12 +94,12 @@ const Profile = () => {
 
       const { error: updateError } = await supabase
         .from('profiles')
-        .upsert({
+        .update({
           user_id: user.id,
           avatar_url: avatarUrl,
           display_name: displayName || null,
           bio: bio || null,
-        });
+        })  .eq('user_id', user.id);
 
       if (updateError) {
         throw updateError;
@@ -127,13 +127,14 @@ const Profile = () => {
     setIsSaving(true);
     try {
       const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          user_id: user.id,
-          display_name: displayName || null,
-          bio: bio || null,
-          avatar_url: profile?.avatar_url || null,
-        });
+      .from('profiles')
+      .update({
+        display_name: displayName || null,
+        bio: bio || null,
+        avatar_url: profile?.avatar_url || null,
+      })
+      .eq('user_id', user.id);
+    
 
       if (error) {
         throw error;

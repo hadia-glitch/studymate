@@ -190,7 +190,8 @@ export const useSchedule = () => {
   };
 
   return {
-    scheduleItems,
+    scheduleItems: Array.isArray(scheduleItems) ? scheduleItems : [],
+    
     loading,
     addScheduleItem,
     updateScheduleItem,
