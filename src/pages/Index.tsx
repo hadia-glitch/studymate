@@ -1,7 +1,14 @@
 import { useState } from "react";
+import "../App.css";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { 
+  parseTimeRange,
+ fetchScheduleItems,
+  findEarliestAvailableSlot,
+  scheduleMultipleTasks
+} from "@/utils/scheduleUtils";
 import { Sparkles, User, BookOpen, Brain, CheckCircle, AlertCircle } from "lucide-react";
 import { TaskFormDialog } from "@/components/dashboard/TaskFormDialog";
 import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
@@ -15,7 +22,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useStickyNotes } from "@/hooks/useStickyNotes";
 import { useTimePreferences } from "@/hooks/useTimePreferences";
-import { findEarliestAvailableSlot } from "@/utils/scheduleUtils";
+
 import { Plus, Calendar, Clock, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
@@ -116,6 +123,9 @@ const Index = () => {
   };
 
   const handleTaskSelect = (taskId: string, isSelected: boolean) => {
+    const isScheduled = safeScheduleItems.some(item => item.taskId === taskId);
+    if (isScheduled) return; 
+  
     setSelectedTasks(prev => 
       isSelected 
         ? [...prev, taskId]
@@ -146,81 +156,76 @@ const Index = () => {
       });
     }
   };
+  // inside Index.tsx
 
-  const generateSchedule = async () => {
-    if (selectedTasks.length === 0) {
+const generateSchedule = async () => {
+  if (!user) return;
+
+  try {
+    
+
+    // ✅ 1. Only schedule tasks without existing interval
+    const tasksToSchedule = tasks.filter(
+      (task) => !scheduleItems.some((item) => item.taskId === task.id)
+    );
+
+    if (tasksToSchedule.length === 0) {
       toast({
-        title: "No tasks selected",
-        description: "Please select tasks to schedule",
+        title: "No Tasks",
+        description: "All tasks are already scheduled.",
+      });
+      return;
+    }
+
+    // ✅ 2. Call new scheduler
+    const newScheduleItems = scheduleMultipleTasks(
+      tasksToSchedule,
+      timePreferences.available || [], // ["09:00-12:00","15:00-17:00"]
+      scheduleItems.map((item) => ({
+        date: item.date,
+        interval_time: item.interval, // DB schema
+      }))
+    );
+
+    if (newScheduleItems.length === 0) {
+      toast({
+        title: "No Slots Available",
+        description: "Could not find available slots for selected tasks.",
         variant: "destructive",
       });
       return;
     }
 
-    if (timePreferences.available.length === 0) {
-      setShowTimePreferences(true);
-      toast({
-        title: "Set your availability",
-        description: "Please set your available time ranges first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const tasksToSchedule = safeTasks.filter(task => 
-        selectedTasks.includes(task.id) && !task.completed
-      );
-
-      // Sort by priority then deadline
-      const sortedTasks = tasksToSchedule.sort((a, b) => {
-        const priorityOrder = { high: 3, medium: 2, low: 1 };
-        const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
-        if (priorityDiff !== 0) return priorityDiff;
-        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-      });
-
-      const newScheduleItems = [];
-      
-      for (const task of sortedTasks) {
-        const earliestSlot = findEarliestAvailableSlot(
-          task,
-          timePreferences.available,
-          [...safeScheduleItems, ...newScheduleItems],
-          new Date()
-        );
-
-        if (earliestSlot) {
-          newScheduleItems.push({
-            interval: earliestSlot.timeSlot,
-            task: task.title,
-            date: earliestSlot.date,
-            taskId: task.id,
-            isAutoScheduled: true,
-          });
-        }
-      }
-
-      // Add schedule items to database
-      for (const item of newScheduleItems) {
-        await addScheduleItem(item);
-      }
-
-      toast({
-        title: "Schedule generated",
-        description: `Successfully scheduled ${newScheduleItems.length} tasks`,
-      });
-      
-      setSelectedTasks([]);
-    } catch (error) {
-      console.error("Error generating schedule:", error);
-      toast({
-        title: "Error generating schedule",
-        description: "Please try again",
-        variant: "destructive",
+    // ✅ 3. Save schedule to DB
+    for (const item of newScheduleItems) {
+      await addScheduleItem({
+        interval: item.interval, // "HH:MM-HH:MM"
+        task: item.task,
+        date: item.date,
+        taskId: item.taskId,
+        isAutoScheduled: true,
       });
     }
-  };
+
+    // ✅ 4. Refresh
+    await fetchScheduleItems(user.id);
+
+    toast({
+      title: "Schedule Generated",
+      description: `${newScheduleItems.length} task(s) scheduled.`,
+    });
+  } catch (error) {
+    console.error("Error generating schedule:", error);
+    toast({
+      title: "Error",
+      description: "Failed to generate schedule.",
+      variant: "destructive",
+    });
+  } finally {
+    
+  }
+};
+
 
   const handleAddStickyNote = async () => {
     const colors: StickyNoteData["color"][] = ["yellow", "pink", "blue", "green", "purple"];
@@ -350,16 +355,21 @@ const Index = () => {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold">Task Management</h2>
                 <div className="flex gap-2">
-                  {selectedTasks.length > 0 && (
-                    <Button 
-                      variant="outline" 
-                      onClick={generateSchedule}
-                      className="gap-2"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Generate Schedule ({selectedTasks.length})
-                    </Button>
-                  )}
+                  
+                 {selectedTasks.length > 0 && (
+                  <Button
+                    onClick={generateSchedule}
+                    className="relative overflow-hidden gap-2 bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Generate Schedule ({selectedTasks.length})
+                
+                    {/* Glare effect */}
+                    <span className="absolute inset-0 w-[50%] translate-x-[-100%] bg-gradient-to-r from-transparent via-green-200/30 to-transparent animate-glare" />
+                  </Button>
+                )}
+                
+                  
                   <Button onClick={() => setShowTaskForm(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Task
@@ -396,7 +406,7 @@ const Index = () => {
               updateScheduleItem={updateScheduleItem}
               deleteScheduleItem={deleteScheduleItem}
               timePreferences={timePreferences}
-              onGenerateSchedule={generateSchedule}
+              //onGenerateSchedule={generateSchedule}
             />
           </div>
 
@@ -500,11 +510,7 @@ const Index = () => {
         </div>
       )}
 
-      <TimePreferencesDialog
-        isOpen={showTimePreferences}
-        onClose={() => setShowTimePreferences(false)}
-        onSave={updateTimePreferences}
-      />
+    
 
       <TaskFormDialog
         isOpen={showTaskForm}

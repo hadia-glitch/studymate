@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { Task } from "./TaskCard";
 import { supabase } from "@/integrations/supabase/client";
+import { useTimePreferences } from "@/hooks/useTimePreferences";
+import { TimePreferencesDialog } from "./TimePreferencesDialog";
 
 interface ScheduleItem {
   id: string;
@@ -27,10 +29,7 @@ interface ScheduleItem {
   isAutoScheduled?: boolean;
 }
 
-interface TimePreferences {
-  filled: string[];
-  unfilled: string[];
-}
+
 
 interface WeeklyCalendarProps {
   tasks: Task[];
@@ -43,159 +42,6 @@ interface WeeklyCalendarProps {
   onGenerateSchedule?: () => void;
 }
 
-// Time Preferences Dialog Component
-const TimePreferencesDialog = ({
-  isOpen,
-  onClose,
-  onSave,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (preferences: { available: string[] }) => void;
-}) => {
-  const [preferences, setPreferences] = useState<TimePreferences>({
-    filled: [],
-    unfilled: [],
-  });
-
-  useEffect(() => {
-    if (isOpen) {
-      fetchTimePreferences();
-    }
-  }, [isOpen]);
-
-  const fetchTimePreferences = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from("time_preferences")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    if (!error && data) {
-      setPreferences({
-        filled: data.available_times || [],
-        unfilled: [],
-      });
-    }
-  };
-
-  const timeSlots = [
-    "6:00 AM - 7:00 AM",
-    "7:00 AM - 8:00 AM",
-    "8:00 AM - 9:00 AM",
-    "9:00 AM - 10:00 AM",
-    "10:00 AM - 11:00 AM",
-    "11:00 AM - 12:00 PM",
-    "12:00 PM - 1:00 PM",
-    "1:00 PM - 2:00 PM",
-    "2:00 PM - 3:00 PM",
-    "3:00 PM - 4:00 PM",
-    "4:00 PM - 5:00 PM",
-    "5:00 PM - 6:00 PM",
-    "6:00 PM - 7:00 PM",
-    "7:00 PM - 8:00 PM",
-    "8:00 PM - 9:00 PM",
-    "9:00 PM - 10:00 PM",
-    "10:00 PM - 11:00 PM",
-  ];
-
-  const handleTimeToggle = (time: string, type: "available" | "unavailable") => {
-    setPreferences((prev) => {
-      const newPrefs = { ...prev };
-      if (type === "available") {
-        if (newPrefs.filled.includes(time)) {
-          newPrefs.filled = newPrefs.filled.filter((t) => t !== time);
-        } else {
-          newPrefs.filled = [...newPrefs.filled, time];
-          newPrefs.unfilled = newPrefs.unfilled.filter((t) => t !== time);
-        }
-      } else {
-        if (newPrefs.unfilled.includes(time)) {
-          newPrefs.unfilled = newPrefs.unfilled.filter((t) => t !== time);
-        } else {
-          newPrefs.unfilled = [...newPrefs.unfilled, time];
-          newPrefs.filled = newPrefs.filled.filter((t) => t !== time);
-        }
-      }
-      return newPrefs;
-    });
-  };
-
-  const handleSave = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await supabase
-      .from("time_preferences")
-      .upsert(
-        {
-          user_id: user.id,
-          available_times: preferences.filled,
-          unavailable_times: preferences.unfilled,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (error) {
-      console.error("Error saving time preferences:", error);
-    } else {
-      onSave({ available: preferences.filled });
-    }
-    onClose();
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <Card className="max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-        <div className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Set Time Preferences</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-medium text-green-700 mb-3">Available Times</h3>
-              <div className="space-y-2">
-                {timeSlots.map((time) => (
-                  <div key={time} className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={preferences.filled.includes(time)}
-                      onCheckedChange={() => handleTimeToggle(time, "available")}
-                    />
-                    <label className="text-sm">{time}</label>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="font-medium text-red-700 mb-3">Unavailable Times</h3>
-              <div className="space-y-2">
-                {timeSlots.map((time) => (
-                  <div key={time} className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={preferences.unfilled.includes(time)}
-                      onCheckedChange={() => handleTimeToggle(time, "unavailable")}
-                    />
-                    <label className="text-sm">{time}</label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 mt-6">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave}>Save Preferences</Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-};
-
 export const WeeklyCalendar = ({
   tasks,
   scheduleItems: externalScheduleItems,
@@ -203,7 +49,7 @@ export const WeeklyCalendar = ({
   addScheduleItem: externalAddScheduleItem,
   updateScheduleItem: externalUpdateScheduleItem,
   deleteScheduleItem: externalDeleteScheduleItem,
-  timePreferences,
+
   onGenerateSchedule,
 }: WeeklyCalendarProps) => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
@@ -212,6 +58,7 @@ export const WeeklyCalendar = ({
     interval: "",
     task: "",
   });
+  const { timePreferences, loading: preferencesLoading, updateTimePreferences } = useTimePreferences();
   const [showTimePreferences, setShowTimePreferences] = useState(false);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -617,197 +464,239 @@ export const WeeklyCalendar = ({
             <Button variant="outline" size="sm" onClick={() => navigateWeek("next")}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowTimePreferences(true)}
-              title="Customize time preferences"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-            {tasks.length > 0 && (
-              <Button onClick={generateAutoSchedule} className="bg-primary hover:bg-primary/90">
-                <Sparkles className="h-4 w-4 mr-2" /> Generate Schedule
-              </Button>
-            )}
+            <div className="flex justify-between items-center">
+           
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowTimePreferences(true)}
+                  >
+                    {timePreferences.available.length > 0 ? "Edit" : "Set"} Times
+                  </Button>
+                </div>
+           
           </div>
         </div>
+{/* Day Selector */}
+<div className="flex justify-between mb-4">
+  {weekDates.map((date, idx) => {
+    const isToday = date.toDateString() === today.toDateString();
+    const isSelected = selectedDayIndex === idx;
+    const dayTaskCount = scheduleItems.filter(
+      item => item.date === date.toISOString().split("T")[0]
+    ).length;
 
-        {/* Day Selector */}
-        <div className="flex justify-between mb-4">
-          {weekDates.map((date, idx) => {
-            const isToday = date.toDateString() === today.toDateString();
-            const dayTaskCount = scheduleItems.filter(item => item.date === date.toISOString().split("T")[0]).length;
-            
-            return (
-              <Button
-                key={idx}
-                variant={selectedDayIndex === idx ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedDayIndex(idx)}
-                className={`flex-1 mx-1 ${isToday ? "ring-2 ring-primary" : ""}`}
-              >
-                <div className="flex flex-col items-center">
-                  <span className="font-semibold">{dayNames[idx].slice(0, 3)}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {date.getDate()}/{date.getMonth() + 1}
-                  </span>
-                  {isToday && <span className="text-xs text-primary font-bold">Today</span>}
-                  {dayTaskCount > 0 && (
-                    <Badge variant="secondary" className="text-xs mt-1">
-                      {dayTaskCount}
+    return (
+      <Button
+        key={idx}
+        variant={isSelected ? "default" : "outline"}
+        onClick={() => setSelectedDayIndex(idx)}
+        className={`relative flex-1 mx-1 py-3 px-2 min-h-[90px] flex flex-col items-center space-y-0.5 rounded-lg ${
+          isToday ? "ring-2 ring-primary" : ""
+        }`}
+      >
+        {/* Badge on top */}
+        {dayTaskCount > 0 && (
+          <Badge
+            variant="secondary"
+            className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
+          >
+            {dayTaskCount}
+          </Badge>
+        )}
+
+        <span
+          className={`font-semibold text-base ${
+            isSelected ? "text-white" : ""
+          }`}
+        >
+          {dayNames[idx].slice(0, 3)}
+        </span>
+        <span
+          className={`text-sm ${
+            isSelected ? "text-white/90" : "text-muted-foreground"
+          }`}
+        >
+          {date.getDate()}/{date.getMonth() + 1}
+        </span>
+        {isToday && (
+          <span
+            className={`text-xs font-bold ${
+              isSelected ? "text-white/90" : "text-primary"
+            }`}
+          >
+            Today
+          </span>
+        )}
+      </Button>
+    );
+  })}
+</div>{/* Schedule Table */}
+<div className="border border-green-300 rounded-lg overflow-hidden">
+  {/* Header */}
+  <div className="bg-green-100 border-b border-green-300">
+    <div className="grid grid-cols-3 gap-4 p-4">
+      <div className="font-semibold text-green-700">Time Interval</div>
+      <div className="font-semibold text-green-700">Task</div>
+      <div className="font-semibold text-center text-green-700">Actions</div>
+    </div>
+  </div>
+
+  {/* Rows */}
+  <div className="divide-y divide-green-300">
+    {filteredSchedule.length > 0 ? (
+      filteredSchedule
+        .sort((a, b) => {
+          const timeA = a.interval.split(" - ")[0];
+          const timeB = b.interval.split(" - ")[0];
+          return timeA.localeCompare(timeB);
+        })
+        .map((item, idx) => (
+          <div
+            key={item.id}
+            className={`grid grid-cols-3 gap-4 p-4 transition-colors
+              ${idx % 2 === 0 ? "bg-white" : "bg-green-50"}
+              hover:bg-green-100`}
+          >
+            {/* Interval */}
+            <div className="flex items-center">
+              {editingItem === item.id ? (
+                <Input
+                  value={editValues.interval}
+                  onChange={(e) =>
+                    setEditValues((prev) => ({ ...prev, interval: e.target.value }))
+                  }
+                  className="h-8"
+                  placeholder="e.g., 9:00 AM - 10:30 AM"
+                  autoFocus
+                />
+              ) : (
+                <span className="text-sm font-medium text-green-700">{item.interval}</span>
+              )}
+            </div>
+
+            {/* Task + Auto badge */}
+            <div className="flex items-center">
+              {editingItem === item.id ? (
+                <Input
+                  value={editValues.task}
+                  onChange={(e) =>
+                    setEditValues((prev) => ({ ...prev, task: e.target.value }))
+                  }
+                  className="h-8"
+                  placeholder="Task description"
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") handleSave(item.id);
+                    else if (e.key === "Escape") handleCancel();
+                  }}
+                />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-green-700">{item.task}</span>
+                  {item.isAutoScheduled && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs bg-green-100 text-green-700 border-green-300"
+                    >
+                      Auto-scheduled
                     </Badge>
                   )}
                 </div>
-              </Button>
-            );
-          })}
-        </div>
+              )}
+            </div>
 
-        {/* Schedule Table */}
-        <div className="border rounded-lg overflow-hidden">
-          <div className="bg-muted/50 border-b">
-            <div className="grid grid-cols-3 gap-4 p-4">
-              <div className="font-semibold">Time Interval</div>
-              <div className="font-semibold">Task</div>
-              <div className="font-semibold text-center">Actions</div>
+            {/* Actions */}
+            <div className="flex items-center justify-center gap-2">
+              {editingItem === item.id ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSave(item.id)}
+                    className="h-7 w-7 p-0"
+                    disabled={!editValues.interval.trim() || !editValues.task.trim()}
+                    title="Save changes"
+                  >
+                    <Save className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancel}
+                    className="h-7 w-7 p-0"
+                    title="Cancel changes"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleEdit(item.id, item.interval, item.task)}
+                    className="h-7 w-7 p-0"
+                    title="Edit task"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDelete(item.id)}
+                    className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                    title="Delete task"
+                  >
+                    <Trash className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
             </div>
           </div>
-          <div className="divide-y">
-            {filteredSchedule.length > 0 ? (
-              filteredSchedule
-                .sort((a, b) => {
-                  // Sort by time interval for better organization
-                  const timeA = a.interval.split(' - ')[0];
-                  const timeB = b.interval.split(' - ')[0];
-                  return timeA.localeCompare(timeB);
-                })
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className={`grid grid-cols-3 gap-4 p-4 hover:bg-muted/30 transition-colors ${
-                      item.isAutoScheduled ? "bg-primary/10 border-l-4 border-l-primary" : ""
-                    }`}
-                  >
-                    <div className="flex items-center">
-                      {editingItem === item.id ? (
-                        <Input
-                          value={editValues.interval}
-                          onChange={(e) =>
-                            setEditValues((prev) => ({ ...prev, interval: e.target.value }))
-                          }
-                          className="h-8"
-                          placeholder="e.g., 9:00 AM - 10:30 AM"
-                          autoFocus
-                        />
-                      ) : (
-                        <span className="text-sm font-medium">{item.interval}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center">
-                      {editingItem === item.id ? (
-                        <Input
-                          value={editValues.task}
-                          onChange={(e) =>
-                            setEditValues((prev) => ({ ...prev, task: e.target.value }))
-                          }
-                          className="h-8"
-                          placeholder="Task description"
-                          onKeyPress={(e) => {
-                            if (e.key === "Enter") {
-                              handleSave(item.id);
-                            } else if (e.key === "Escape") {
-                              handleCancel();
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">{item.task}</span>
-                          {item.isAutoScheduled && (
-                            <Badge variant="outline" className="text-xs bg-primary/20 text-primary">
-                              Auto-scheduled
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                      {editingItem === item.id ? (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleSave(item.id)}
-                            className="h-7 w-7 p-0"
-                            disabled={!editValues.interval.trim() || !editValues.task.trim()}
-                            title="Save changes"
-                          >
-                            <Save className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleCancel}
-                            className="h-7 w-7 p-0"
-                            title="Cancel changes"
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEdit(item.id, item.interval, item.task)}
-                            className="h-7 w-7 p-0"
-                            title="Edit task"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDelete(item.id)}
-                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
-                            title="Delete task"
-                          >
-                            <Trash className="h-3 w-3" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))
-            ) : (
-              <div className="p-6 text-center text-muted-foreground text-sm">
-                No tasks scheduled for {dayNames[selectedDayIndex]}.
-                <br />
-                Click "Add Task" below to schedule something.
-              </div>
-            )}
-          </div>
-        </div>
+        ))
+    ) : (
+      <div className="p-6 text-center text-muted-foreground text-sm">
+        No tasks scheduled for {dayNames[selectedDayIndex]}.
+        <br />
+        Click "Add Task" below to schedule something.
+      </div>
+    )}
+  </div>
 
-        <div className="flex justify-between items-center mt-4">
-          <Button onClick={handleAddTask} variant="outline" size="sm">
-            + Add Task
-          </Button>
-          {filteredSchedule.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {filteredSchedule.length} task(s) scheduled for {dayNames[selectedDayIndex]}
-            </span>
-          )}
-        </div>
+  {/* Footer Row */}
+  <div className="flex items-center justify-between px-4 py-3 bg-green-50 border-t border-green-300">
+    {/* Center Add Task button */}
+    <div className="flex-1 flex justify-center">
+      <Button
+        onClick={handleAddTask}
+        variant="outline"
+        size="sm"
+        className="px-6 py-2"
+      >
+        + Add Task
+      </Button>
+    </div>
+
+    {/* Right task count */}
+    <div className="flex-1 flex justify-end">
+      {filteredSchedule.length > 0 && (
+        <span className="text-xs text-green-700">
+          {filteredSchedule.length} task(s) scheduled for {dayNames[selectedDayIndex]}
+        </span>
+      )}
+    </div>
+  </div>
+</div>
+
+
       </Card>
 
-      {/* Time Preferences Modal */}
       <TimePreferencesDialog
         isOpen={showTimePreferences}
         onClose={() => setShowTimePreferences(false)}
-        onSave={() => {}}
+        onSave={updateTimePreferences}
       />
+    
     </>
   );
 };

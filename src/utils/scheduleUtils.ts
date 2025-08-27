@@ -1,139 +1,164 @@
-export interface Task {
+// utils/schedulingUtils.ts
+// utils/scheduleUtils.ts
+import { supabase } from '@/integrations/supabase/client';
+// ---- Time helpers ----
+
+// convert "HH:MM" → minutes
+export function toMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// convert minutes → "HH:MM"
+export function fromMinutes(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// parse "HH:MM-HH:MM"
+export function parseTimeRange(range: string) {
+  const [start, end] = range.split("-");
+  return { start: toMinutes(start), end: toMinutes(end) };
+}
+
+// check overlap
+function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+  return Math.max(aStart, bStart) < Math.min(aEnd, bEnd);
+}
+
+// ---- Slot finder ----
+
+export function findEarliestAvailableSlot(
+  ranges: string[],
+  occupied: [number, number][],
+  duration: number,
+  minStart = 0
+): [string, string] | null {
+  for (const range of ranges) {
+    const { start, end } = parseTimeRange(range);
+    let t = Math.max(start, minStart);
+
+    while (t + duration <= end) {
+      const candidate = [t, t + duration];
+      if (!occupied.some(([os, oe]) => overlaps(t, t + duration, os, oe))) {
+        return [fromMinutes(candidate[0]), fromMinutes(candidate[1])];
+      }
+      t += 5; // slide forward by 5 mins if blocked
+    }
+  }
+  return null;
+}
+
+// ---- Multi-task scheduler ----
+
+interface Task {
   id: string;
   title: string;
-  description?: string;
-  priority: "high" | "medium" | "low";
   deadline: Date;
-  completed: boolean;
-  category?: string;
   estimatedTime?: number; // in minutes
 }
 
-export interface TimeSlot {
-  start: string;
-  end: string;
+interface ScheduleItem {
+  taskId: string;
+  task: string;
+  date: string; // YYYY-MM-DD
+  interval: string; // "HH:MM-HH:MM"
 }
 
-export const parseTimeRange = (timeRange: string): TimeSlot | null => {
-  try {
-    // Handle formats like "9 AM - 1 PM", "14:00 - 18:00", "9:30 AM - 12:30 PM"
-    const timeRangeRegex = /^(\d{1,2}(?::\d{2})?)\s*(?:(AM|PM|am|pm))?\s*-\s*(\d{1,2}(?::\d{2})?)\s*(?:(AM|PM|am|pm))?$/i;
-    const match = timeRange.trim().match(timeRangeRegex);
-    
-    if (!match) return null;
+export function scheduleMultipleTasks(
+  tasks: Task[],
+  available_times: string[],
+  existing: { date: string; interval_time: string }[]
+): ScheduleItem[] {
+  const newSchedule: ScheduleItem[] = [];
+  const today = new Date();
+  const currentDay = new Date(today);
 
-    const [, startTime, startPeriod, endTime, endPeriod] = match;
-    
-    const parseTime = (time: string, period?: string): string => {
-      const [hours, minutes = "00"] = time.split(":");
-      let hour = parseInt(hours);
-      
-      if (period) {
-        const isAM = period.toLowerCase() === "am";
-        const isPM = period.toLowerCase() === "pm";
-        
-        if (isPM && hour !== 12) hour += 12;
-        if (isAM && hour === 12) hour = 0;
-      }
-      
-      return `${hour.toString().padStart(2, "0")}:${minutes.padStart(2, "0")}`;
-    };
-    
-    return {
-      start: parseTime(startTime, startPeriod),
-      end: parseTime(endTime, endPeriod)
-    };
-  } catch (error) {
-    console.error("Error parsing time range:", timeRange, error);
-    return null;
+  // occupied intervals by day
+  const occupiedByDay: Record<string, [number, number][]> = {};
+  for (const item of existing) {
+    if (!occupiedByDay[item.date]) occupiedByDay[item.date] = [];
+    const { start, end } = parseTimeRange(item.interval_time);
+    occupiedByDay[item.date].push([start, end]);
   }
-};
 
-export const isTimeInRange = (time: string, timeRange: string): boolean => {
-  const slot = parseTimeRange(timeRange);
-  if (!slot) return false;
-  
-  return time >= slot.start && time < slot.end;
-};
+  for (const task of tasks) {
+    const duration = task.estimatedTime ?? 60;
+    const deadline = new Date(task.deadline);
 
-export const isTimeSlotAvailable = (
-  timeSlot: string,
-  date: string,
-  availableTimeRanges: string[],
-  existingScheduleItems: Array<{ interval: string; date: string }>
-): boolean => {
-  // Check if time slot is already taken
-  const isSlotTaken = existingScheduleItems.some(
-    item => item.date === date && item.interval === timeSlot
-  );
-  
-  if (isSlotTaken) return false;
-  
-  // Check if time slot falls within available time ranges
-  const [startTime] = timeSlot.split(" - ");
-  
-  return availableTimeRanges.some(range => 
-    isTimeInRange(startTime, range)
-  );
-};
+    let scheduled = false;
 
-export const generateTimeSlots = (startHour: number = 8, endHour: number = 22): string[] => {
-  const slots = [];
-  
-  for (let hour = startHour; hour < endHour; hour++) {
-    const startTime = `${hour.toString().padStart(2, "0")}:00`;
-    const endTime = `${(hour + 1).toString().padStart(2, "0")}:00`;
-    
-    // Convert to 12-hour format for display
-    const formatTime = (time: string) => {
-      const [h, m] = time.split(":");
-      const hour = parseInt(h);
-      const ampm = hour >= 12 ? "PM" : "AM";
-      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      return `${displayHour}:${m} ${ampm}`;
-    };
-    
-    slots.push(`${formatTime(startTime)} - ${formatTime(endTime)}`);
-  }
-  
-  return slots;
-};
+    while (currentDay <= deadline && !scheduled) {
+      const dateStr = currentDay.toISOString().split("T")[0];
+      const occupied = occupiedByDay[dateStr] || [];
 
-export const findEarliestAvailableSlot = (
-  task: Task,
-  availableTimeRanges: string[],
-  existingScheduleItems: Array<{ interval: string; date: string }>,
-  startDate: Date = new Date()
-): { date: string; timeSlot: string } | null => {
-  const timeSlots = generateTimeSlots();
-  const deadline = new Date(task.deadline);
-  
-  // Start from current date or next day if current time is late
-  const currentDate = new Date(startDate);
-  currentDate.setHours(0, 0, 0, 0);
-  
-  // Search for up to 30 days or until deadline
-  for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
-    const searchDate = new Date(currentDate);
-    searchDate.setDate(currentDate.getDate() + dayOffset);
-    
-    // Don't schedule past deadline
-    if (searchDate >= deadline) break;
-    
-    // Skip past dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (searchDate < today) continue;
-    
-    const dateStr = searchDate.toISOString().split("T")[0];
-    
-    // Try each time slot for this date
-    for (const timeSlot of timeSlots) {
-      if (isTimeSlotAvailable(timeSlot, dateStr, availableTimeRanges, existingScheduleItems)) {
-        return { date: dateStr, timeSlot };
+      const minStart =
+        dateStr === today.toISOString().split("T")[0]
+          ? toMinutes(
+              `${today.getHours().toString().padStart(2, "0")}:${today
+                .getMinutes()
+                .toString()
+                .padStart(2, "0")}`
+            ) + 60 // push 1h from now
+          : 0;
+
+      const slot = findEarliestAvailableSlot(
+        available_times,
+        occupied,
+        duration,
+        minStart
+      );
+
+      if (slot) {
+        const [s, e] = slot;
+        const interval = `${s}-${e}`;
+
+        const newItem: ScheduleItem = {
+          taskId: task.id,
+          task: task.title,
+          date: dateStr,
+          interval,
+        };
+
+        newSchedule.push(newItem);
+
+        if (!occupiedByDay[dateStr]) occupiedByDay[dateStr] = [];
+        occupiedByDay[dateStr].push([toMinutes(s), toMinutes(e)]);
+
+        scheduled = true;
       }
+
+      currentDay.setDate(currentDay.getDate() + 1);
     }
   }
+
+  return newSchedule;
+}
+
+export const fetchScheduleItems = async (userId: string): Promise<ScheduleItem[]> => {
+  const { data, error } = await supabase
+    .from("schedule_items")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching schedule items:", error.message);
+    return [];
+  }
+
+ 
   
-  return null;
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    taskId: row.task_id,
+    task: row.task_description,
+    date: row.schedule_date,
+    interval: row.interval_time,
+    isAutoScheduled: row.is_auto_scheduled,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    userId: row.user_id,
+  }));
 };

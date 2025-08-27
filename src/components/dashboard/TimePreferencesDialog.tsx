@@ -1,12 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
 
 interface TimePreferencesDialogProps {
   isOpen: boolean;
@@ -15,169 +10,81 @@ interface TimePreferencesDialogProps {
 }
 
 export const TimePreferencesDialog = ({ isOpen, onClose, onSave }: TimePreferencesDialogProps) => {
-  const [timeInput, setTimeInput] = useState("");
-  const [availableTimes, setAvailableTimes] = useState<string[]>([]);
-  const { user } = useAuth();
-  const { toast } = useToast();
+  const [timeRanges, setTimeRanges] = useState<{ start: string; end: string }[]>([
+    { start: "09:00", end: "12:00" },
+  ]);
 
-  useEffect(() => {
-    if (isOpen && user) {
-      fetchTimePreferences();
-    }
-  }, [isOpen, user]);
+  const addRange = () => setTimeRanges([...timeRanges, { start: "09:00", end: "12:00" }]);
 
-  const fetchTimePreferences = async () => {
-    if (!user) return;
-
-    try {
-      const { data, error } = await supabase
-        .from("time_preferences")
-        .select("available_times")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-
-      if (data) {
-        setAvailableTimes(data.available_times || []);
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error loading preferences",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
+  const updateRange = (index: number, field: "start" | "end", value: string) => {
+    // allow partial typing, just trim spaces
+    const updated = [...timeRanges];
+    updated[index][field] = value.replace(/\s+/g, "");
+    setTimeRanges(updated);
   };
 
-  const handleAddTime = () => {
-    const trimmedInput = timeInput.trim();
-    if (!trimmedInput) return;
+  const normalizeTime = (val: string): string => {
+    let [h, m] = val.split(":");
+    if (!h) h = "00";
+    if (!m) m = "00";
 
-    // Basic validation for time range format
-    const timeRangeRegex = /^\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)?\s*-\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)?$/i;
-    const time24Regex = /^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/;
-    
-    if (!timeRangeRegex.test(trimmedInput) && !time24Regex.test(trimmedInput)) {
-      toast({
-        title: "Invalid format",
-        description: "Please use format like '9 AM - 12 PM' or '14:00 - 18:00'",
-        variant: "destructive",
-      });
-      return;
-    }
+    let hour = parseInt(h, 10);
+    let minute = parseInt(m, 10);
 
-    if (!availableTimes.includes(trimmedInput)) {
-      setAvailableTimes(prev => [...prev, trimmedInput]);
-    }
-    setTimeInput("");
+    if (isNaN(hour)) hour = 0;
+    if (isNaN(minute)) minute = 0;
+
+    if (hour > 23) hour = 23;
+    if (minute > 59) minute = 59;
+
+    return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
   };
 
-  const handleRemoveTime = (index: number) => {
-    setAvailableTimes(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSave = async () => {
-    if (!user) return;
-
-    try {
-      const { error } = await supabase
-        .from("time_preferences")
-        .upsert(
-          {
-            user_id: user.id,
-            available_times: availableTimes,
-          },
-          { onConflict: "user_id" }
-        );
-
-      if (error) throw error;
-
-      onSave({ available: availableTimes });
-      toast({
-        title: "Preferences saved",
-        description: "Your time preferences have been updated successfully.",
-      });
-      onClose();
-    } catch (error: any) {
-      toast({
-        title: "Error saving preferences",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleAddTime();
-    }
+  const handleSave = () => {
+    // ✅ save in strict "HH:mm-HH:mm" format (no spaces)
+    const formatted = timeRanges.map(r => `${normalizeTime(r.start)}-${normalizeTime(r.end)}`);
+    onSave({ available: formatted });
+    onClose();
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle>Set Available Time Ranges</DialogTitle>
+          <DialogTitle>Set Available Times</DialogTitle>
         </DialogHeader>
-        
-        <div className="space-y-6">
-          <div className="space-y-3">
-            <Label htmlFor="time-input" className="text-sm font-medium">
-              Add Available Time Range
-            </Label>
-            <div className="flex gap-2">
+
+        <div className="space-y-4">
+          {timeRanges.map((range, idx) => (
+            <div key={idx} className="flex gap-2 items-center">
               <Input
-                id="time-input"
-                value={timeInput}
-                onChange={(e) => setTimeInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="e.g., 9 AM - 1 PM or 14:00 - 18:00"
-                className="flex-1"
+                value={range.start}
+                onChange={(e) => updateRange(idx, "start", e.target.value)}
+                placeholder="HH:mm"
+                className="w-[100px] text-center"
+                maxLength={5}
               />
-              <Button onClick={handleAddTime} size="sm">
-                Add
-              </Button>
+
+              <span>-</span>
+
+              <Input
+                value={range.end}
+                onChange={(e) => updateRange(idx, "end", e.target.value)}
+                placeholder="HH:mm"
+                className="w-[100px] text-center"
+                maxLength={5}
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Enter time ranges when you're available to work on tasks
-            </p>
-          </div>
+          ))}
 
-          {availableTimes.length > 0 && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-success">Your Available Times</Label>
-                <div className="space-y-1">
-                  {availableTimes.map((time, index) => (
-                    <div key={index} className="flex items-center justify-between bg-success/10 p-2 rounded text-sm">
-                      <span>{time}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemoveTime(index)}
-                        className="h-6 w-6 p-0 text-success hover:text-destructive"
-                      >
-                        ×
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+          <Button variant="outline" onClick={addRange}>
+            + Add Range
+          </Button>
+        </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
-              Cancel
-            </Button>
-            <Button onClick={handleSave} className="flex-1">
-              Save Preferences
-            </Button>
-          </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave}>Save</Button>
         </div>
       </DialogContent>
     </Dialog>
