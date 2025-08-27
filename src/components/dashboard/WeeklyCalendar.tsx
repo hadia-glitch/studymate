@@ -34,7 +34,12 @@ interface TimePreferences {
 
 interface WeeklyCalendarProps {
   tasks: Task[];
-  timePreferences?: TimePreferences;
+  scheduleItems: ScheduleItem[];
+  setScheduleItems: (items: ScheduleItem[]) => Promise<void>;
+  addScheduleItem: (item: Omit<ScheduleItem, "id">) => Promise<void>;
+  updateScheduleItem: (itemId: string, updates: Partial<ScheduleItem>) => Promise<void>;
+  deleteScheduleItem: (itemId: string) => Promise<void>;
+  timePreferences: { available: string[] };
   onGenerateSchedule?: () => void;
 }
 
@@ -46,7 +51,7 @@ const TimePreferencesDialog = ({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (preferences: TimePreferences) => void;
+  onSave: (preferences: { available: string[] }) => void;
 }) => {
   const [preferences, setPreferences] = useState<TimePreferences>({
     filled: [],
@@ -72,7 +77,7 @@ const TimePreferencesDialog = ({
     if (!error && data) {
       setPreferences({
         filled: data.available_times || [],
-        unfilled: data.unavailable_times || [],
+        unfilled: [],
       });
     }
   };
@@ -137,7 +142,7 @@ const TimePreferencesDialog = ({
     if (error) {
       console.error("Error saving time preferences:", error);
     } else {
-      onSave(preferences);
+      onSave({ available: preferences.filled });
     }
     onClose();
   };
@@ -193,6 +198,11 @@ const TimePreferencesDialog = ({
 
 export const WeeklyCalendar = ({
   tasks,
+  scheduleItems: externalScheduleItems,
+  setScheduleItems: setExternalScheduleItems,
+  addScheduleItem: externalAddScheduleItem,
+  updateScheduleItem: externalUpdateScheduleItem,
+  deleteScheduleItem: externalDeleteScheduleItem,
   timePreferences,
   onGenerateSchedule,
 }: WeeklyCalendarProps) => {
@@ -205,8 +215,8 @@ export const WeeklyCalendar = ({
   const [showTimePreferences, setShowTimePreferences] = useState(false);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [localTimePreferences, setLocalTimePreferences] = useState<TimePreferences>(
-    timePreferences || { filled: [], unfilled: [] }
+  const [localTimePreferences, setLocalTimePreferences] = useState<{ available: string[] }>(
+    timePreferences || { available: [] }
   );
 
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -446,7 +456,7 @@ export const WeeklyCalendar = ({
     setEditValues({ interval: "", task: "" });
   };
 
-  const handleTimePreferencesSave = (preferences: TimePreferences) => {
+  const handleTimePreferencesSave = (preferences: { available: string[] }) => {
     setLocalTimePreferences(preferences);
   };
 
@@ -520,7 +530,7 @@ export const WeeklyCalendar = ({
               item.date === dateString && item.interval === timeSlot
             );
 
-            const isSlotUnavailable = localTimePreferences.unfilled.includes(timeSlot);
+            const isSlotUnavailable = !localTimePreferences.available.includes(timeSlot);
 
             if (!isSlotOccupied && !isSlotUnavailable) {
               const sessionTitle = sessionsNeeded > 1
@@ -796,7 +806,7 @@ export const WeeklyCalendar = ({
       <TimePreferencesDialog
         isOpen={showTimePreferences}
         onClose={() => setShowTimePreferences(false)}
-        onSave={handleTimePreferencesSave}
+        onSave={() => {}}
       />
     </>
   );

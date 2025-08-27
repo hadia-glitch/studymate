@@ -2,174 +2,227 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, Target, Plus, Sparkles, User } from "lucide-react";
-import { TaskCard } from "@/components/dashboard/TaskCard";
-import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
-import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
-import { CandleTimer } from "@/components/study/CandleTimer";
-import { StickyNote } from "@/components/dashboard/StickyNote";
+import { Sparkles, User, BookOpen, Brain, CheckCircle, AlertCircle } from "lucide-react";
 import { TaskFormDialog } from "@/components/dashboard/TaskFormDialog";
-import { AIAssistant } from "@/components/ai/AIAssistant";
-import { DndContext, DragEndEvent } from '@dnd-kit/core';
+import { WeeklyCalendar } from "@/components/dashboard/WeeklyCalendar";
+import { StickyNote } from "@/components/dashboard/StickyNote";
+import { ScheduleOptimizer } from "@/components/ai/ScheduleOptimizer";
+import { CandleTimer } from "@/components/study/CandleTimer";
+import { PomodoroTimer } from "@/components/dashboard/PomodoroTimer";
+import { TimePreferencesDialog } from "@/components/dashboard/TimePreferencesDialog";
+import { TaskCard } from "@/components/dashboard/TaskCard";
+import { useTasks } from "@/hooks/useTasks";
+import { useSchedule } from "@/hooks/useSchedule";
+import { useStickyNotes } from "@/hooks/useStickyNotes";
+import { useTimePreferences } from "@/hooks/useTimePreferences";
+import { findEarliestAvailableSlot } from "@/utils/scheduleUtils";
+import { Plus, Calendar, Clock, Target } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { useTasks, type Task } from "@/hooks/useTasks";
-import { useSchedule, type ScheduleItem } from "@/hooks/useSchedule";
-import { useStickyNotes, type StickyNoteData } from "@/hooks/useStickyNotes";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { DndContext, DragEndEvent } from '@dnd-kit/core';
+// Type imports
+interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  priority: "high" | "medium" | "low";
+  deadline: Date;
+  completed: boolean;
+  category?: string;
+  estimatedTime?: number;
+}
 
-interface TimePreferences {
-  filled: string[];
-  unfilled: string[];
+interface StickyNoteData {
+  id: string;
+  content: string;
+  color: "yellow" | "pink" | "blue" | "green" | "purple";
+  position: { x: number; y: number };
 }
 
 const Index = () => {
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
-  const [timePreferences, setTimePreferences] = useState<TimePreferences>({
-    filled: [],
-    unfilled: []
-  });
-  
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [showScheduleOptimizer, setShowScheduleOptimizer] = useState(false);
+  const [showTimePreferences, setShowTimePreferences] = useState(false);
+
+  const { tasks, loading: tasksLoading, addTask, updateTask, deleteTask } = useTasks();
+  const { 
+    scheduleItems, 
+    loading: scheduleLoading, 
+    addScheduleItem, 
+    updateScheduleItem, 
+    deleteScheduleItem,
+    bulkUpdateScheduleItems 
+  } = useSchedule();
+  const { stickyNotes, loading: notesLoading, addStickyNote, updateStickyNote, deleteStickyNote } = useStickyNotes();
+  const { timePreferences, loading: preferencesLoading, updateTimePreferences } = useTimePreferences();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { tasks, loading: tasksLoading, addTask, toggleComplete } = useTasks();
-  const { scheduleItems, addScheduleItem, updateScheduleItem, deleteScheduleItem, bulkUpdateScheduleItems } = useSchedule();
 
-  const { stickyNotes, addStickyNote, updateStickyNote, deleteStickyNote } = useStickyNotes();
-
-  // Ensure scheduleItems is always an array
-  const safeScheduleItems = Array.isArray(scheduleItems) ? scheduleItems : [];
+  // Safe arrays to prevent undefined errors
   const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const safeScheduleItems = Array.isArray(scheduleItems) ? scheduleItems : [];
+  const safeStickyNotes = Array.isArray(stickyNotes) ? stickyNotes : [];
 
-  // Helper function to check if a time slot is available
-  const isTimeSlotAvailable = (date: string, timeSlot: string): boolean => {
-    // Check if slot is already occupied in schedule
-    const isOccupied = safeScheduleItems.some(item =>
-      item.date === date && item.interval === timeSlot
-    );
-
-    // Check if slot is in unavailable times
-    const isUnavailable = timePreferences.unfilled.includes(timeSlot);
-
-    return !isOccupied && !isUnavailable;
-  };
-
-  // Helper function to convert time string to minutes for comparison
-  const timeToMinutes = (timeStr: string): number => {
-    const [time, period] = timeStr.split(' ');
-    const [hours, minutes] = time.split(':').map(Number);
-    let totalMinutes = (hours % 12) * 60 + (minutes || 0);
-    if (period === 'PM' && hours !== 12) totalMinutes += 12 * 60;
-    if (period === 'AM' && hours === 12) totalMinutes = minutes || 0;
-    return totalMinutes;
-  };
-
-  // Generate available time slots for scheduling
-  const generateAvailableTimeSlots = (): string[] => {
-    const slots = [];
-    for (let hour = 8; hour <= 20; hour++) {
-      const startTime = hour <= 12
-        ? `${hour}:00 ${hour === 12 ? 'PM' : 'AM'}`
-        : `${hour - 12}:00 PM`;
-      const endTime = (hour + 1) <= 12
-        ? `${hour + 1}:00 ${(hour + 1) === 12 ? 'PM' : 'AM'}`
-        : `${(hour + 1) - 12}:00 PM`;
-
-      if (hour === 11) {
-        slots.push(`11:00 AM - 12:00 PM`);
-      } else if (hour === 12) {
-        slots.push(`12:00 PM - 1:00 PM`);
+  const handleTaskSubmit = async (taskData: Omit<Task, "id">) => {
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, taskData);
+        toast({
+          title: "Task updated",
+          description: "Your task has been updated successfully.",
+        });
       } else {
-        slots.push(`${startTime} - ${endTime}`);
+        await addTask(taskData);
+        toast({
+          title: "Task created",
+          description: "Your task has been created successfully.",
+        });
       }
+      setShowTaskForm(false);
+      setEditingTask(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save task. Please try again.",
+        variant: "destructive",
+      });
     }
-    return slots;
   };
 
-  const generateSchedule = () => {
-    if (safeTasks.length === 0) return;
+  const handleToggleComplete = async (taskId: string) => {
+    const task = safeTasks.find(t => t.id === taskId);
+    if (!task) return;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    try {
+      await updateTask(taskId, { completed: !task.completed });
+      toast({
+        title: task.completed ? "Task reopened" : "Task completed",
+        description: task.completed 
+          ? "Task has been marked as incomplete." 
+          : "Great job! Task marked as completed.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update task. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
-    // Filter tasks that need scheduling (not completed and deadline is in the future)
-    const tasksToSchedule = safeTasks.filter(task =>
-      !task.completed &&
-      task.deadline > today &&
-      !safeScheduleItems.some(item => item.taskId === task.id) // Don't reschedule already scheduled tasks
+  const handleTaskSelect = (taskId: string, isSelected: boolean) => {
+    setSelectedTasks(prev => 
+      isSelected 
+        ? [...prev, taskId]
+        : prev.filter(id => id !== taskId)
     );
+  };
 
-    if (tasksToSchedule.length === 0) return;
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setShowTaskForm(true);
+  };
 
-    // Sort by priority (high first) then by deadline
-    const sortedTasks = tasksToSchedule.sort((a, b) => {
-      const priorityOrder = { high: 3, medium: 2, low: 1 };
-      const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
-      if (priorityDiff !== 0) return priorityDiff;
-      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-    });
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm("Are you sure you want to delete this task?")) return;
+    
+    try {
+      await deleteTask(taskId);
+      setSelectedTasks(prev => prev.filter(id => id !== taskId));
+      toast({
+        title: "Task deleted",
+        description: "Task has been deleted successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete task. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
-    const newScheduleItems: ScheduleItem[] = [];
-    const availableTimeSlots = generateAvailableTimeSlots();
+  const generateSchedule = async () => {
+    if (selectedTasks.length === 0) {
+      toast({
+        title: "No tasks selected",
+        description: "Please select tasks to schedule",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    sortedTasks.forEach(task => {
-      // Calculate completion deadline (2 days before actual deadline)
-      const completionDeadline = new Date(task.deadline);
-      completionDeadline.setDate(completionDeadline.getDate() - 2);
+    if (timePreferences.available.length === 0) {
+      setShowTimePreferences(true);
+      toast({
+        title: "Set your availability",
+        description: "Please set your available time ranges first",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      // Calculate number of sessions needed based on estimated time
-      const sessionsNeeded = Math.ceil((task.estimatedTime || 60) / 60); // 1-hour sessions
-      let sessionsScheduled = 0;
+    try {
+      const tasksToSchedule = safeTasks.filter(task => 
+        selectedTasks.includes(task.id) && !task.completed
+      );
 
-      // Try to schedule sessions from today up to completion deadline
-      for (let dayOffset = 0; dayOffset < 7 && sessionsScheduled < sessionsNeeded; dayOffset++) {
-        const currentScheduleDate = new Date(today);
-        currentScheduleDate.setDate(today.getDate() + dayOffset);
+      // Sort by priority then deadline
+      const sortedTasks = tasksToSchedule.sort((a, b) => {
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      });
 
-        // Skip if past completion deadline
-        if (currentScheduleDate > completionDeadline) break;
+      const newScheduleItems = [];
+      
+      for (const task of sortedTasks) {
+        const earliestSlot = findEarliestAvailableSlot(
+          task,
+          timePreferences.available,
+          [...safeScheduleItems, ...newScheduleItems],
+          new Date()
+        );
 
-        // Skip weekends (optional - can be removed if needed)
-        if (currentScheduleDate.getDay() === 0 || currentScheduleDate.getDay() === 6) continue;
-
-        const dateString = currentScheduleDate.toISOString().split("T")[0];
-
-        // Try each available time slot for this day
-        for (const timeSlot of availableTimeSlots) {
-          if (sessionsScheduled >= sessionsNeeded) break;
-
-          if (isTimeSlotAvailable(dateString, timeSlot)) {
-            const sessionTitle = sessionsNeeded > 1
-              ? `${task.title} (Session ${sessionsScheduled + 1}/${sessionsNeeded})`
-              : task.title;
-
-            newScheduleItems.push({
-              id: `auto-${task.id}-${sessionsScheduled}`,
-              interval: timeSlot,
-              task: sessionTitle,
-              date: dateString,
-              taskId: task.id,
-              isAutoScheduled: true
-            });
-
-            sessionsScheduled++;
-            break; // Move to next day after scheduling one session
-          }
+        if (earliestSlot) {
+          newScheduleItems.push({
+            interval: earliestSlot.timeSlot,
+            task: task.title,
+            date: earliestSlot.date,
+            taskId: task.id,
+            isAutoScheduled: true,
+          });
         }
       }
-    });
 
-    // Add new schedule items to existing ones (with safety check)
-    bulkUpdateScheduleItems([...safeScheduleItems, ...newScheduleItems]);
+      // Add schedule items to database
+      for (const item of newScheduleItems) {
+        await addScheduleItem(item);
+      }
+
+      toast({
+        title: "Schedule generated",
+        description: `Successfully scheduled ${newScheduleItems.length} tasks`,
+      });
+      
+      setSelectedTasks([]);
+    } catch (error) {
+      console.error("Error generating schedule:", error);
+      toast({
+        title: "Error generating schedule",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleAddTask = (newTask: Omit<Task, "id">) => {
-    addTask(newTask);
-  };
-
-  const handleAddStickyNote = () => {
+  const handleAddStickyNote = async () => {
     const colors: StickyNoteData["color"][] = ["yellow", "pink", "blue", "green", "purple"];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
     
@@ -182,7 +235,15 @@ const Index = () => {
       }
     };
     
-    addStickyNote(newNote);
+    try {
+      await addStickyNote(newNote);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create note. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -190,7 +251,7 @@ const Index = () => {
     if (!delta) return;
 
     const noteId = active.id as string;
-    const note = stickyNotes.find(n => n.id === noteId);
+    const note = safeStickyNotes.find(n => n.id === noteId);
     if (!note) return;
 
     const newX = Math.max(0, Math.min(note.position.x + delta.x, 800 - 224));
@@ -205,7 +266,7 @@ const Index = () => {
   const completedTasks = safeTasks.filter(task => task.completed);
   const highPriorityTasks = pendingTasks.filter(task => task.priority === "high");
 
-  if (tasksLoading) {
+  if (tasksLoading || scheduleLoading || notesLoading || preferencesLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
@@ -220,7 +281,7 @@ const Index = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">StudyMate Dashboard</h1>
             <p className="text-muted-foreground mt-1">
-              {currentDate.toLocaleDateString("en-US", { 
+              {new Date().toLocaleDateString("en-US", { 
                 weekday: "long", 
                 year: "numeric", 
                 month: "long", 
@@ -231,10 +292,10 @@ const Index = () => {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {safeTasks.filter(t => t.completed).length}/{safeTasks.length} tasks completed
+                {completedTasks.length}/{safeTasks.length} tasks completed
               </span>
               <Badge variant="outline" className="px-3 py-1">
-                {Math.round((safeTasks.filter(t => t.completed).length / safeTasks.length) * 100) || 0}% Complete
+                {Math.round((completedTasks.length / safeTasks.length) * 100) || 0}% Complete
               </Badge>
             </div>
             <Button 
@@ -263,13 +324,13 @@ const Index = () => {
           </Card>
 
           <Card className="p-6 text-center bg-gradient-to-br from-success/10 to-success/5">
-            <Target className="h-8 w-8 mx-auto mb-2 text-success" />
+            <CheckCircle className="h-8 w-8 mx-auto mb-2 text-success" />
             <h3 className="text-2xl font-bold text-success">{completedTasks.length}</h3>
             <p className="text-sm text-muted-foreground">Completed</p>
           </Card>
 
           <Card className="p-6 text-center bg-gradient-to-br from-warning/10 to-warning/5">
-            <Clock className="h-8 w-8 mx-auto mb-2 text-warning" />
+            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-warning" />
             <h3 className="text-2xl font-bold text-warning">{highPriorityTasks.length}</h3>
             <p className="text-sm text-muted-foreground">High Priority</p>
           </Card>
@@ -288,10 +349,22 @@ const Index = () => {
             <div>
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold">Task Management</h2>
-                <Button onClick={() => setShowTaskForm(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Task
-                </Button>
+                <div className="flex gap-2">
+                  {selectedTasks.length > 0 && (
+                    <Button 
+                      variant="outline" 
+                      onClick={generateSchedule}
+                      className="gap-2"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Generate Schedule ({selectedTasks.length})
+                    </Button>
+                  )}
+                  <Button onClick={() => setShowTaskForm(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Task
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -299,7 +372,10 @@ const Index = () => {
                   <TaskCard
                     key={task.id}
                     task={task}
-                    onToggleComplete={toggleComplete}
+                    onToggleComplete={handleToggleComplete}
+                    onEdit={handleEditTask}
+                    isSelected={selectedTasks.includes(task.id)}
+                    onSelect={handleTaskSelect}
                   />
                 ))}
                 {pendingTasks.length === 0 && (
@@ -313,14 +389,14 @@ const Index = () => {
 
             {/* Weekly Calendar */}
             <WeeklyCalendar 
-               tasks={safeTasks}
-               scheduleItems={safeScheduleItems}
-               setScheduleItems={bulkUpdateScheduleItems}  // This should handle bulk updates
-               addScheduleItem={addScheduleItem}
-               updateScheduleItem={updateScheduleItem}
-               deleteScheduleItem={deleteScheduleItem}
-               timePreferences={timePreferences}
-               onGenerateSchedule={generateSchedule}
+              tasks={safeTasks}
+              scheduleItems={safeScheduleItems}
+              setScheduleItems={bulkUpdateScheduleItems}
+              addScheduleItem={addScheduleItem}
+              updateScheduleItem={updateScheduleItem}
+              deleteScheduleItem={deleteScheduleItem}
+              timePreferences={timePreferences}
+              onGenerateSchedule={generateSchedule}
             />
           </div>
 
@@ -352,6 +428,16 @@ const Index = () => {
                     {highPriorityTasks.length} remaining
                   </Badge>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Available Times</span>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowTimePreferences(true)}
+                  >
+                    {timePreferences.available.length > 0 ? "Edit" : "Set"} Times
+                  </Button>
+                </div>
               </div>
             </Card>
           </div>
@@ -375,7 +461,7 @@ const Index = () => {
 
           <DndContext onDragEnd={handleDragEnd}>
             <Card className="relative min-h-[400px] overflow-hidden bg-gradient-to-br from-muted/30 to-muted/10 border-dashed border-2">
-              {stickyNotes.map(note => (
+              {safeStickyNotes.map(note => (
                 <StickyNote
                   key={note.id}
                   note={note}
@@ -383,7 +469,7 @@ const Index = () => {
                   onDelete={deleteStickyNote}
                 />
               ))}
-              {stickyNotes.length === 0 && (
+              {safeStickyNotes.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
                   <div className="text-center">
                     <Plus className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -396,21 +482,38 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Task Form Dialog */}
-      <TaskFormDialog
-        isOpen={showTaskForm}
-        onClose={() => setShowTaskForm(false)}
-        onAddTask={handleAddTask}
+      {showScheduleOptimizer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-background rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">AI Schedule Optimizer</h2>
+              <Button variant="ghost" onClick={() => setShowScheduleOptimizer(false)}>
+                ✕
+              </Button>
+            </div>
+            <ScheduleOptimizer 
+              tasks={safeTasks.filter(task => selectedTasks.includes(task.id))} 
+              onScheduleUpdate={() => {}} 
+              onSlotEdit={() => {}}
+            />
+          </div>
+        </div>
+      )}
+
+      <TimePreferencesDialog
+        isOpen={showTimePreferences}
+        onClose={() => setShowTimePreferences(false)}
+        onSave={updateTimePreferences}
       />
 
-      {/* AI Assistant */}
-      <AIAssistant
-        isOpen={showAIAssistant}
-        onClose={() => setShowAIAssistant(false)}
-        tasks={safeTasks}
-        onAddTask={handleAddTask}
-        onAddStickyNote={handleAddStickyNote}
-        onClearSlot={() => {}}
+      <TaskFormDialog
+        isOpen={showTaskForm}
+        onClose={() => {
+          setShowTaskForm(false);
+          setEditingTask(null);
+        }}
+        onSave={handleTaskSubmit}
+        editingTask={editingTask}
       />
     </div>
   );

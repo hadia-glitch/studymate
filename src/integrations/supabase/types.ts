@@ -168,7 +168,6 @@ export type Database = {
           available_times: string[] | null
           created_at: string
           id: string
-          unavailable_times: string[] | null
           updated_at: string
           user_id: string
         }
@@ -176,7 +175,6 @@ export type Database = {
           available_times?: string[] | null
           created_at?: string
           id?: string
-          unavailable_times?: string[] | null
           updated_at?: string
           user_id: string
         }
@@ -184,7 +182,6 @@ export type Database = {
           available_times?: string[] | null
           created_at?: string
           id?: string
-          unavailable_times?: string[] | null
           updated_at?: string
           user_id?: string
         }

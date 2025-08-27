@@ -22,8 +22,7 @@ export interface ScheduleItem {
 
 // Time Preferences interface
 export interface TimePreferences {
-  filled: string[]; // Available time slots
-  unfilled: string[]; // Unavailable time slots
+  available: string[]; // Available time slots only
 }
 
 // Sticky Note interface
@@ -47,8 +46,12 @@ export interface TaskCardProps {
 export interface WeeklyCalendarProps {
   tasks: Task[];
   scheduleItems: ScheduleItem[];
-  setScheduleItems: (items: ScheduleItem[] | ((prev: ScheduleItem[]) => ScheduleItem[])) => void;
+  setScheduleItems: (items: ScheduleItem[]) => Promise<void>;
+  addScheduleItem: (item: Omit<ScheduleItem, "id">) => Promise<void>;
+  updateScheduleItem: (itemId: string, updates: Partial<ScheduleItem>) => Promise<void>;
+  deleteScheduleItem: (itemId: string) => Promise<void>;
   timePreferences: TimePreferences;
+  onGenerateSchedule?: () => void;
 }
 
 // Time Preferences Dialog Props interface

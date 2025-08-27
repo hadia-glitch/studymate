@@ -15,10 +15,11 @@ import { Task } from "./TaskCard";
 interface TaskFormDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddTask: (task: Omit<Task, "id">) => void;
+  onSave: (task: Omit<Task, "id">) => void;
+  editingTask?: Task | null;
 }
 
-export const TaskFormDialog = ({ isOpen, onClose, onAddTask }: TaskFormDialogProps) => {
+export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFormDialogProps) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
@@ -41,7 +42,7 @@ export const TaskFormDialog = ({ isOpen, onClose, onAddTask }: TaskFormDialogPro
       estimatedTime: parseInt(estimatedTime) || 60
     };
 
-    onAddTask(newTask);
+    onSave(newTask);
     
     // Reset form
     setTitle("");
