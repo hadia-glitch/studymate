@@ -16,11 +16,10 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
   const animationRef = useRef<number>();
 
   const progress = ((totalTime - timeLeft) / totalTime) * 100;
-  const candleHeight = Math.max(20, 200 - (progress * 1.8)); // Candle melts as time progresses
+  const candleHeight = Math.max(20, 200 - progress * 1.8); // Candle melts as time progresses
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    
     if (isActive && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft(prev => {
@@ -33,7 +32,6 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
         });
       }, 1000);
     }
-
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -49,12 +47,11 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
     const drawCandle = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Candle body
+      // Candle drawing remains unchanged
       const candleWidth = 40;
       const candleX = (canvas.width - candleWidth) / 2;
       const candleY = canvas.height - candleHeight - 20;
 
-      // Gradient for candle
       const candleGradient = ctx.createLinearGradient(candleX, candleY, candleX + candleWidth, candleY);
       candleGradient.addColorStop(0, '#f4d1a7');
       candleGradient.addColorStop(0.5, '#e8c5a0');
@@ -63,24 +60,16 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
       ctx.fillStyle = candleGradient;
       ctx.fillRect(candleX, candleY, candleWidth, candleHeight);
 
-      // Wick
       ctx.fillStyle = '#2c1810';
       ctx.fillRect(candleX + candleWidth/2 - 1, candleY - 8, 2, 8);
 
-      // Flame (animated)
       if (isActive) {
         const time = Date.now() * 0.005;
         const flameX = candleX + candleWidth/2;
         const flameY = candleY - 15;
-        
-        // Flame flicker effect
         const flicker = Math.sin(time) * 2 + Math.sin(time * 1.5) * 1.5;
-        
-        // Flame gradient
-        const flameGradient = ctx.createRadialGradient(
-          flameX, flameY + 5, 0,
-          flameX, flameY, 8
-        );
+
+        const flameGradient = ctx.createRadialGradient(flameX, flameY + 5, 0, flameX, flameY, 8);
         flameGradient.addColorStop(0, '#ff6b35');
         flameGradient.addColorStop(0.4, '#f7931e');
         flameGradient.addColorStop(0.7, '#ffdc00');
@@ -89,18 +78,16 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
         ctx.save();
         ctx.translate(flameX, flameY);
         ctx.scale(1 + flicker * 0.1, 1 + flicker * 0.15);
-        
+
         ctx.beginPath();
         ctx.moveTo(0, 5);
         ctx.quadraticCurveTo(-6, 0, -3, -10);
         ctx.quadraticCurveTo(0, -15, 3, -10);
         ctx.quadraticCurveTo(6, 0, 0, 5);
         ctx.closePath();
-        
         ctx.fillStyle = flameGradient;
         ctx.fill();
 
-        // Inner flame
         ctx.beginPath();
         ctx.moveTo(0, 3);
         ctx.quadraticCurveTo(-3, -2, -1, -8);
@@ -112,7 +99,6 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
 
         ctx.restore();
 
-        // Glow effect
         ctx.save();
         ctx.globalCompositeOperation = 'screen';
         ctx.shadowColor = '#ff6b35';
@@ -124,7 +110,6 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
         ctx.restore();
       }
 
-      // Melted wax drops
       if (progress > 20) {
         ctx.fillStyle = 'rgba(244, 209, 167, 0.8)';
         for (let i = 0; i < Math.floor(progress / 10); i++) {
@@ -145,9 +130,7 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
     animate();
 
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, [isActive, candleHeight, progress]);
 
@@ -165,23 +148,22 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
   };
 
   return (
-    <Card className="p-6 text-center bg-gradient-to-br from-accent/5 to-accent/15 border-accent/20">
+    <Card className="p-6 text-center bg-teal-50 border-2 border-teal-100">
       <div className="flex items-center justify-center gap-2 mb-4">
-        <Flame className="h-5 w-5 text-accent-dark" />
-        <h3 className="font-semibold text-accent-dark">Study Until The Candle Melts</h3>
+        <Flame className="h-5 w-5 text-teal-600" />
+        <h3 className="font-semibold text-teal-600">Study Until The Candle Melts</h3>
       </div>
       
       <div className="relative mb-6">
         <canvas
           ref={canvasRef}
-          width={120}
-          height={240}
-          className="mx-auto border border-accent/20 rounded-lg bg-gradient-to-b from-muted/30 to-muted/60"
+          width={140} // bigger to fit full candle
+          height={260}
+          className="mx-auto border border-teal-400 rounded-lg bg-teal-100"
         />
         
-        {/* Time display overlay */}
-        <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-card/90 backdrop-blur-sm rounded-full px-3 py-1 border border-accent/30">
-          <span className="text-sm font-mono text-accent-dark font-semibold">
+        <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-teal-200/90 backdrop-blur-sm rounded-full px-3 py-1 border border-teal-400">
+          <span className="text-sm font-mono text-teal-600 font-semibold">
             {formatTime(timeLeft)}
           </span>
         </div>
@@ -189,22 +171,32 @@ export const CandleTimer = ({ duration = 25, onComplete }: CandleTimerProps) => 
 
       <div className="flex justify-center gap-2 mb-4">
         {!isActive ? (
-          <Button onClick={handleStart} className="gap-2" disabled={timeLeft === 0}>
+          <Button
+            onClick={handleStart}
+            className="gap-2 bg-teal-600 hover:bg-teal-700 text-teal-300"
+            disabled={timeLeft === 0}
+          >
             <Play className="h-4 w-4" />
             Light Candle
           </Button>
         ) : (
-          <Button onClick={handlePause} variant="secondary" className="gap-2">
+          <Button
+            onClick={handlePause}
+            className="gap-2 bg-teal-600 hover:bg-teal-700 text-teal-300"
+          >
             <Pause className="h-4 w-4" />
             Pause
           </Button>
         )}
-        <Button onClick={handleReset} variant="outline" size="icon">
-          <RotateCcw className="h-4 w-4" />
+        <Button
+          onClick={handleReset}
+          className="gap-2 bg-teal-500 hover:bg-teal-600 text-teal-300"
+        >
+          <RotateCcw className="h-4 w-4" /> Reset
         </Button>
       </div>
 
-      <div className="text-xs text-muted-foreground">
+      <div className="text-xs text-teal-600">
         Focus deeply until the candle burns down completely
       </div>
     </Card>

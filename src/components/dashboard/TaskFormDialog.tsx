@@ -19,7 +19,12 @@ interface TaskFormDialogProps {
   editingTask?: Task | null;
 }
 
-export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFormDialogProps) => {
+export const TaskFormDialog = ({
+  isOpen,
+  onClose,
+  onSave,
+  editingTask
+}: TaskFormDialogProps) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
@@ -29,7 +34,7 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!title.trim() || !deadline) return;
 
     const newTask: Omit<Task, "id"> = {
@@ -43,7 +48,7 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
     };
 
     onSave(newTask);
-    
+
     // Reset form
     setTitle("");
     setDescription("");
@@ -51,18 +56,23 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
     setDeadline(undefined);
     setEstimatedTime("");
     setCategory("");
-    
+
     onClose();
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add New Task</DialogTitle>
+  return <Dialog open={isOpen} onOpenChange={onClose}>
+  <DialogContent className="max-w-md p-0 overflow-hidden">
+    {/* Gradient Border Wrapper */}
+    <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-1">
+      <div className="bg-white rounded-md p-6">
+        <DialogHeader className="mb-4">
+          <DialogTitle className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            {editingTask ? "Edit Task" : "Add New Task"}
+          </DialogTitle>
         </DialogHeader>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Title */}
           <div className="space-y-2">
             <Label htmlFor="title">Task Title*</Label>
             <Input
@@ -71,9 +81,11 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Enter task title"
               required
+              className="focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:border-blue-400"
             />
           </div>
 
+          {/* Description */}
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea
@@ -82,15 +94,22 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Task description (optional)"
               rows={3}
+              className="focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:border-blue-400"
             />
           </div>
 
+          {/* Priority & Time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="priority">Priority</Label>
-              <Select value={priority} onValueChange={(value: "low" | "medium" | "high") => setPriority(value)}>
-                <SelectTrigger>
-                  <SelectValue />
+              <Select
+                value={priority}
+                onValueChange={(value: "low" | "medium" | "high") =>
+                  setPriority(value)
+                }
+              >
+                <SelectTrigger className="focus:ring-2 focus:ring-blue-300 focus:border-blue-400">
+                  <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="low">Low</SelectItem>
@@ -110,10 +129,12 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
                 placeholder="60"
                 min="15"
                 step="15"
+                className="focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:border-blue-400"
               />
             </div>
           </div>
 
+          {/* Category */}
           <div className="space-y-2">
             <Label htmlFor="category">Category</Label>
             <Input
@@ -121,9 +142,11 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               placeholder="e.g., Study, Work, Personal"
+              className="focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:border-blue-400"
             />
           </div>
 
+          {/* Deadline */}
           <div className="space-y-2">
             <Label>Deadline*</Label>
             <Popover>
@@ -131,7 +154,7 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
                 <Button
                   variant="outline"
                   className={cn(
-                    "w-full justify-start text-left font-normal",
+                    "w-full justify-start text-left font-normal hover:bg-blue-50 hover:text-blue-700 focus:ring-2 focus:ring-blue-300 focus:border-blue-400",
                     !deadline && "text-muted-foreground"
                   )}
                 >
@@ -145,21 +168,36 @@ export const TaskFormDialog = ({ isOpen, onClose, onSave, editingTask }: TaskFor
                   selected={deadline}
                   onSelect={setDeadline}
                   disabled={(date) => date < new Date()}
+                  className="[&_.rdp-day_selected]:bg-blue-600 [&_.rdp-day_selected]:text-white [&_.rdp-day_selected]:hover:bg-blue-700 [&_.rdp-day]:hover:bg-blue-50"
                 />
               </PopoverContent>
             </Popover>
           </div>
 
+          {/* Actions */}
           <div className="flex gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+            {/* Cancel stays subtle but blue hover */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 hover:bg-blue-50 hover:text-blue-700"
+            >
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={!title.trim() || !deadline}>
-              Add Task
+
+            {/* Gradient Save/Add button */}
+            <Button
+              type="submit"
+              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90 transition"
+              disabled={!title.trim() || !deadline}
+            >
+              {editingTask ? "Save Changes" : "Add Task"}
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-};
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
+}

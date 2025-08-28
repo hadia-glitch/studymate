@@ -1,6 +1,6 @@
 // utils/schedulingUtils.ts
-// utils/scheduleUtils.ts
 import { supabase } from '@/integrations/supabase/client';
+
 // ---- Time helpers ----
 
 // convert "HH:MM" → minutes
@@ -59,11 +59,16 @@ interface Task {
   estimatedTime?: number; // in minutes
 }
 
-interface ScheduleItem {
+export interface ScheduleItem {
+  id?: string;
   taskId: string;
   task: string;
   date: string; // YYYY-MM-DD
   interval: string; // "HH:MM-HH:MM"
+  isAutoScheduled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  userId?: string;
 }
 
 export function scheduleMultipleTasks(
@@ -136,7 +141,11 @@ export function scheduleMultipleTasks(
   return newSchedule;
 }
 
-export const fetchScheduleItems = async (userId: string): Promise<ScheduleItem[]> => {
+// ---- Supabase fetch ----
+
+export const fetchScheduleItems = async (
+  userId: string
+): Promise<ScheduleItem[]> => {
   const { data, error } = await supabase
     .from("schedule_items")
     .select("*")
@@ -148,8 +157,6 @@ export const fetchScheduleItems = async (userId: string): Promise<ScheduleItem[]
     return [];
   }
 
- 
-  
   return (data || []).map((row: any) => ({
     id: row.id,
     taskId: row.task_id,

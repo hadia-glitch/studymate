@@ -194,6 +194,7 @@ export const useSchedule = () => {
     
     loading,
     addScheduleItem,
+    fetchScheduleItems,
     updateScheduleItem,
     deleteScheduleItem,
     bulkUpdateScheduleItems,

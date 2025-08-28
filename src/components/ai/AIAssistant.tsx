@@ -686,10 +686,10 @@ export const AIAssistant = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[400px] h-[520px] p-0 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-primary/5 to-secondary/5">
+        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-purple-100 to-purple-100">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <BotIcon className="h-4 w-4 text-primary" />
+            <div className="h-8 w-8 rounded-full bg-purple-50  flex items-center justify-center">
+              <BotIcon className="h-4 w-4 text-teal-600" />
             </div>
             <div>
               <h3 className="font-semibold text-sm">StudyMate AI</h3>
@@ -700,53 +700,53 @@ export const AIAssistant = ({
         </div>
   
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-          <div className="space-y-3">
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex gap-2 ${m.sender === "user" ? "justify-end" : "justify-start"}`}
-              >
-                {m.sender === "bot" && (
-                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <BotIcon className="h-3 w-3 text-primary" />
-                  </div>
-                )}
-                <div
-                  className={`max-w-[80%] p-3 rounded-lg text-sm whitespace-pre-line ${
-                    m.sender === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
-                  }`}
-                >
-                  <p>{m.text}</p>
-                  <p className="text-[10px] opacity-70 mt-1">
-                    {m.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </p>
-                </div>
-                {m.sender === "user" && (
-                  <div className="h-6 w-6 rounded-full bg-secondary/20 flex items-center justify-center flex-shrink-0 mt-1">
-                    <UserIcon className="h-3 w-3" />
-                  </div>
-                )}
-              </div>
-            ))}
+<ScrollArea className="flex-1 p-4" ref={scrollRef}>
+  <div className="space-y-3">
+    {messages.map((m) => (
+      <div
+        key={m.id}
+        className={`flex gap-2 ${m.sender === "user" ? "justify-end" : "justify-start"}`}
+      >
+        {m.sender === "bot" && (
+          <div className="h-6 w-6 rounded-full bg-teal-50 flex items-center justify-center flex-shrink-0 mt-1">
+            <BotIcon className="h-3 w-3 text-black" /> {/* bot icon black */}
           </div>
-        </ScrollArea>
-  
-        {/* Input */}
-        <div className="p-4 border-t">
-          <div className="flex gap-2">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder='e.g., "What should I do now?" or "Move algebra to tomorrow 14:30"'
-              className="flex-1"
-            />
-            <Button onClick={handleSend} size="icon">
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+        )}
+        <div
+          className={`max-w-[80%] p-3 rounded-lg text-sm whitespace-pre-line ${
+            m.sender === "user" ? "bg-teal-50 text-black" : "bg-teal-100 text-black"
+          }`}
+        >
+          <p>{m.text}</p>
+          <p className="text-[10px] opacity-70 mt-1">
+            {m.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </p>
         </div>
+        {m.sender === "user" && (
+          <div className="h-6 w-6 rounded-full bg-secondary/20 flex items-center justify-center flex-shrink-0 mt-1">
+            <UserIcon className="h-3 w-3 text-black" /> {/* user icon black */}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+</ScrollArea>
+{/* Input */}
+<div className="p-4 border-t">
+  <div className="flex gap-2">
+    <Input
+      value={input}
+      onChange={(e) => setInput(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder='e.g., "What should I do now?" or "Move algebra to tomorrow 14:30"'
+      className="flex-1 bg-purple-50 text-black" // input background purple-50, text black
+    />
+    <Button onClick={handleSend} size="icon" className="bg-purple-100" >
+      <Send className="h-4 w-4 text-black bg-purple-100" /> {/* icon black */}
+     
+    </Button>
+  </div>
+</div>
       </DialogContent>
     </Dialog>
   );
