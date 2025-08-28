@@ -42,6 +42,7 @@ npm run dev
 - Tailwind CSS
 
 ##SCREENSHOTS
+<img width="1379" height="960" alt="image" src="https://github.com/user-attachments/assets/8fd5ffc1-f058-4141-ba33-766aa796723b" />
 <img width="1406" height="941" alt="image" src="https://github.com/user-attachments/assets/862b1a13-8d1d-4d88-a0a1-832d8b984358" />
 <img width="1387" height="960" alt="image" src="https://github.com/user-attachments/assets/c2621a56-a303-4b97-bf2f-89107d2101b1" />
 <img width="1223" height="973" alt="image" src="https://github.com/user-attachments/assets/686f572f-8f4f-4ffd-b129-05d7f106780e" />
@@ -51,7 +52,8 @@ npm run dev
 <img width="1456" height="818" alt="image" src="https://github.com/user-attachments/assets/a70e27c3-881f-470c-ac8c-dcc1479b75dc" />
 <img width="1467" height="664" alt="image" src="https://github.com/user-attachments/assets/ce342739-afc7-4e56-aa7f-55a31bb181c1" />
 <img width="551" height="679" alt="image" src="https://github.com/user-attachments/assets/b14673d3-52c1-4e79-9bae-3fdb1fc56d7b" />
-<img width="1379" height="960" alt="image" src="https://github.com/user-attachments/assets/8fd5ffc1-f058-4141-ba33-766aa796723b" />
+
+
 
 
 
