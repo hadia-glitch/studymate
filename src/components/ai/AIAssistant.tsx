@@ -148,14 +148,9 @@ const parseMoveCommand = (raw: string): {
   targetDate?: Date;
   targetTimeMinutes?: number; // desired start time, optional
 } => {
-  // Examples:
-  // "move algebra to tomorrow 14:30"
-  // "reschedule 09:00 - 10:00 to today 15:00"
-  // "move calculus to 2025-08-27"
-  // If no date: default today
   const text = raw.trim();
 
-  // Try to isolate the part after the keyword
+  // Remove keywords
   const body = text.replace(/^move\s+|^reschedule\s+/i, "").trim();
 
   // Find " to " separator
@@ -168,8 +163,7 @@ const parseMoveCommand = (raw: string): {
     tail = body.slice(toIdx + 4).trim(); // after " to "
   }
 
-  // identifier could be a time interval or a task title
-  // Normalize interval by ensuring we have " - " if written as "09:00-10:00"
+  // Normalize interval by ensuring " - "
   let titleOrInterval = identifier.replace(/-/g, " - ").replace(/\s{2,}/g, " ");
 
   // Parse tail into date and/or time
@@ -179,22 +173,30 @@ const parseMoveCommand = (raw: string): {
   const now = new Date();
 
   if (tail) {
-    // detect "today" / "tomorrow"
+    // Detect "today" / "tomorrow"
     if (/\btoday\b/i.test(tail)) {
       targetDate = startOfDay(now);
     } else if (/\btomorrow\b/i.test(tail)) {
       targetDate = startOfDay(addDays(now, 1));
     }
 
-    // detect explicit date YYYY-MM-DD
-    const dateMatch = tail.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-    if (dateMatch) {
-      const d = new Date(dateMatch[1]);
+    // Detect explicit date YYYY-MM-DD
+    const isoDateMatch = tail.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (isoDateMatch) {
+      const d = new Date(isoDateMatch[1]);
       if (!isNaN(d.getTime())) targetDate = startOfDay(d);
     }
 
-    // detect time HH:mm
-    const timeMatch = tail.match(/\b([01]\d|2[0-3]|\d):([0-5]\d)\b/);
+    // Detect explicit date DD-MM-YYYY
+    const dmYMatch = tail.match(/\b(\d{2})-(\d{2})-(\d{4})\b/);
+    if (dmYMatch) {
+      const [_, dd, mm, yyyy] = dmYMatch;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+      if (!isNaN(d.getTime())) targetDate = startOfDay(d);
+    }
+
+    // Detect time HH:mm
+    const timeMatch = tail.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
     if (timeMatch) {
       targetTimeMinutes = hmToMinutes(`${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`);
     }
@@ -626,6 +628,7 @@ export const AIAssistant = ({
       task_id: targetItem.task_id,
       is_auto_scheduled: true,
     });
+    
 
     return pushMessage(
       `Rescheduled “${targetItem.task_description}” to ${moveToDateISO} at ${newInterval}.`,
